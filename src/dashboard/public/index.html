@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shanghai Flight Monitor Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Shanghai Flight Monitor</h1>
+            <p>Tracking the best flight prices from PVG/SHA</p>
+        </header>
+
+        <section id="route-configuration">
+            <h2>Route Configuration</h2>
+            <form id="add-route-form">
+                <div class="form-group">
+                    <label for="origin">Origin (e.g., PVG, SHA)</label>
+                    <input type="text" id="origin" name="origin" required placeholder="PVG">
+                </div>
+                <div class="form-group">
+                    <label for="destination">Destination (e.g., TYO, SEL)</label>
+                    <input type="text" id="destination" name="destination" required placeholder="TYO">
+                </div>
+                <div class="form-group">
+                    <label for="region">Region</label>
+                    <select id="region" name="region" required>
+                        <option value="East Asia">East Asia</option>
+                        <option value="SE Asia">SE Asia</option>
+                        <option value="Europe">Europe</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="search_type">Search Type</label>
+                    <select id="search_type" name="search_type" required>
+                        <option value="one-way">One-way</option>
+                        <option value="round-trip">Round-trip</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="alert_threshold">Alert Threshold (CNY)</label>
+                    <input type="number" id="alert_threshold" name="alert_threshold" placeholder="1000">
+                </div>
+                <button type="submit" class="btn-primary">Add Route</button>
+            </form>
+
+            <div id="monitored-routes-list">
+                <h3>Currently Monitored Routes</h3>
+                <ul id="routes-ul">
+                    <!-- Routes will be populated here -->
+                </ul>
+            </div>
+        </section>
+
+        <section id="visualizations">
+            <h2>Price Visualizations</h2>
+            <div class="controls">
+                <label for="route-selector">Select Route:</label>
+                <select id="route-selector">
+                    <option value="">-- Choose a route --</option>
+                </select>
+            </div>
+            
+            <div class="charts-container">
+                <div class="chart-wrapper">
+                    <h3>Price Trends</h3>
+                    <canvas id="price-trend-chart"></canvas>
+                </div>
+                <div class="chart-wrapper">
+                    <h3>Price Heatmap (Last 30 Days)</h3>
+                    <div id="heatmap-placeholder" class="heatmap-container">
+                        <!-- Heatmap will be rendered here or as a specialized Chart.js chart -->
+                        <canvas id="price-heatmap-chart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
