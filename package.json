@@ -1,0 +1,33 @@
+﻿{
+  "name": "shanghai-flight-monitor",
+  "version": "1.0.0",
+  "description": "A budget traveler tool that tracks flight prices from PVG/SHA to East Asia, SE Asia, and Europe.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest",
+    "scrape": "node src/scraper.js"
+  },
+  "keywords": [
+    "flight",
+    "monitor",
+    "shanghai",
+    "pvg",
+    "sha",
+    "playwright"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.7",
+    "dotenv": "^16.4.5",
+    "express": "^4.18.3",
+    "playwright": "^1.42.1",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.0"
+  }
+}
