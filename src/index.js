@@ -11,7 +11,10 @@ const PORT = process.env.PORT || 3000;
 const SCRAPE_INTERVAL_HOURS = parseFloat(process.env.SCRAPE_INTERVAL_HOURS) || 12;
 
 /**
- * Main function to start the application
+ * Main function to start the application.
+ * Initializes the database, starts the Express dashboard, and begins the monitoring loop.
+ * @async
+ * @returns {Promise<void>}
  */
 async function main() {
     try {
@@ -42,7 +45,11 @@ async function main() {
 }
 
 /**
- * Main execution loop for scraping and alerting
+ * Main execution loop for scraping and alerting.
+ * Retrieves monitored routes from the database, scrapes Google Flights and Ctrip for prices,
+ * and passes the results to the alert engine.
+ * @async
+ * @returns {Promise<void>}
  */
 async function runMonitorLoop() {
     console.log(`[${new Date().toISOString()}] Starting monitor loop...`);
@@ -124,9 +131,11 @@ async function runMonitorLoop() {
 }
 
 /**
- * Helper to generate travel dates based on search type
+ * Helper to generate travel dates based on search type.
  * - WEEKEND: Next 4 weekends (Friday to Monday)
  * - FLEXIBLE: 1st of each month for the next 6 months (7-day trip)
+ * @param {string} type - The type of search (e.g., 'WEEKEND' or 'FLEXIBLE').
+ * @returns {Array<{startDate: string, endDate: string}>} Array of date pairs.
  */
 function generateSearchDates(type) {
     const dates = [];
@@ -175,7 +184,9 @@ function generateSearchDates(type) {
 }
 
 /**
- * Helper to format date as YYYY-MM-DD
+ * Helper to format date as YYYY-MM-DD.
+ * @param {Date} date - The date to format.
+ * @returns {string} The formatted date string.
  */
 function formatDate(date) {
     const y = date.getFullYear();
