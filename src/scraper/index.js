@@ -1,5 +1,9 @@
 const { firefox } = require('playwright');
 
+/**
+ * BaseScraper is an abstract class providing Playwright browser initialization and teardown capabilities.
+ * Specific scraper implementations should extend this class and implement the `scrape` method.
+ */
 class BaseScraper {
   constructor() {
     this.browser = null;

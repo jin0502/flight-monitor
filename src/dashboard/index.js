@@ -11,7 +11,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // Routes
 
-// List all monitored routes
+/**
+ * @route GET /api/routes
+ * @description Retrieves a list of all monitored routes from the database.
+ * @returns {Array<Object>} List of monitored routes.
+ */
 app.get('/api/routes', (req, res) => {
     const db = getDB();
     db.all('SELECT * FROM monitored_routes', [], (err, rows) => {
@@ -22,7 +26,17 @@ app.get('/api/routes', (req, res) => {
     });
 });
 
-// Add a new route to monitor
+/**
+ * @route POST /api/routes
+ * @description Adds a new route to monitor.
+ * @param {Object} req.body - The route details.
+ * @param {string} req.body.origin - The origin airport code.
+ * @param {string} req.body.destination - The destination airport code.
+ * @param {string} req.body.region - The region of the destination.
+ * @param {string} req.body.search_type - The type of search (e.g., 'WEEKEND', 'FLEXIBLE').
+ * @param {number} [req.body.alert_threshold] - Optional price threshold for alerts.
+ * @returns {Object} The created route.
+ */
 app.post('/api/routes', (req, res) => {
     const { origin, destination, region, search_type, alert_threshold } = req.body;
     
@@ -50,7 +64,12 @@ app.post('/api/routes', (req, res) => {
     });
 });
 
-// Remove a route
+/**
+ * @route DELETE /api/routes/:id
+ * @description Removes a monitored route by its ID.
+ * @param {string} req.params.id - The ID of the route to remove.
+ * @returns {void}
+ */
 app.delete('/api/routes/:id', (req, res) => {
     const { id } = req.params;
     const db = getDB();
@@ -65,7 +84,12 @@ app.delete('/api/routes/:id', (req, res) => {
     });
 });
 
-// Get price history for a specific route
+/**
+ * @route GET /api/prices/:route_id
+ * @description Retrieves the price history for a specific monitored route.
+ * @param {string} req.params.route_id - The ID of the route.
+ * @returns {Array<Object>} List of historical price data.
+ */
 app.get('/api/prices/:route_id', (req, res) => {
     const { route_id } = req.params;
     const db = getDB();

@@ -3,8 +3,20 @@ const { sendDiscordNotification } = require('./channels/discord');
 
 /**
  * Checks current price against historical data and triggers alerts if necessary.
- * @param {object} priceData The scraped flight data.
- * @param {sqlite3.Database} db The database instance.
+ *
+ * Compares the scraped price with user-defined thresholds and historical averages.
+ * Triggers alerts for significant price drops or when a price is below a threshold.
+ * Limits duplicate alerts for the same price/route combination within 24 hours.
+ *
+ * @param {Object} priceData The scraped flight data.
+ * @param {number} priceData.route_id The ID of the monitored route.
+ * @param {number} priceData.price The scraped flight price.
+ * @param {string} priceData.scrape_date The ISO string of the scrape date.
+ * @param {string} priceData.travel_date The ISO string of the travel date.
+ * @param {string} [priceData.airline] The airline name.
+ * @param {string} [priceData.duration] The flight duration.
+ * @param {import('sqlite3').Database} db The database instance.
+ * @returns {Promise<boolean>} True if an alert was triggered, false otherwise.
  */
 async function checkAlerts(priceData, db) {
     return new Promise((resolve, reject) => {
