@@ -8,6 +8,44 @@ dotenv.config();
 
 const app = express();
 app.use(express.json());
+
+// Basic Authentication Middleware
+const basicAuth = (req, res, next) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader) {
+        res.setHeader('WWW-Authenticate', 'Basic realm="Flight Monitor Dashboard"');
+        return res.status(401).send('Authentication required');
+    }
+
+    try {
+        const auth = Buffer.from(authHeader.split(' ')[1], 'base64').toString().split(':');
+        const user = auth[0];
+        const pass = auth[1];
+
+        const adminUser = process.env.ADMIN_USERNAME || 'admin';
+        const adminPass = process.env.ADMIN_PASSWORD;
+
+        if (!adminPass) {
+            console.warn('WARNING: ADMIN_PASSWORD not set in .env. Authentication disabled for safety.');
+            return next();
+        }
+
+        if (user === adminUser && pass === adminPass) {
+            next();
+        } else {
+            res.setHeader('WWW-Authenticate', 'Basic realm="Flight Monitor Dashboard"');
+            res.status(401).send('Invalid credentials');
+        }
+    } catch (e) {
+        res.status(400).send('Malformed Authorization header');
+    }
+};
+
+// Apply auth middleware to all routes and static files
+app.use(basicAuth);
+
+// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Routes
@@ -39,14 +77,6 @@ app.get('/api/routes', (req, res) => {
 /**
  * @route POST /api/routes
  * @description Adds a new route to monitor.
- * @param {Object} req.body - The route details.
- * @param {string} req.body.origin - The origin airport code.
- * @param {string} req.body.destination - The destination (country or airport).
- * @param {string} req.body.destination_type - 'country' or 'airport'.
- * @param {string} req.body.region - The region of the destination.
- * @param {string} req.body.search_type - The type of search (e.g., 'WEEKEND', 'FLEXIBLE').
- * @param {number} [req.body.alert_threshold] - Optional price threshold for alerts.
- * @returns {Object} The created route.
  */
 app.post('/api/routes', (req, res) => {
     const { origin, destination, destination_type, region, search_type, alert_threshold } = req.body;
@@ -79,8 +109,6 @@ app.post('/api/routes', (req, res) => {
 /**
  * @route DELETE /api/routes/:id
  * @description Removes a monitored route by its ID.
- * @param {string} req.params.id - The ID of the route to remove.
- * @returns {void}
  */
 app.delete('/api/routes/:id', (req, res) => {
     const { id } = req.params;
@@ -99,8 +127,6 @@ app.delete('/api/routes/:id', (req, res) => {
 /**
  * @route GET /api/prices/:route_id
  * @description Retrieves the price history for a specific monitored route.
- * @param {string} req.params.route_id - The ID of the route.
- * @returns {Array<Object>} List of historical price data.
  */
 app.get('/api/prices/:route_id', (req, res) => {
     const { route_id } = req.params;
