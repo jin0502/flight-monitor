@@ -4,11 +4,13 @@ const CtripScraper = require('./scraper/providers/ctrip');
 const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
+const countryAirports = require('./data/country-airports');
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
-const SCRAPE_INTERVAL_HOURS = parseFloat(process.env.SCRAPE_INTERVAL_HOURS) || 12;
+// Changed default from 12 to 4 hours
+const SCRAPE_INTERVAL_HOURS = parseFloat(process.env.SCRAPE_INTERVAL_HOURS) || 4;
 
 /**
  * Main function to start the application.
@@ -74,7 +76,7 @@ async function runMonitorLoop() {
         }
 
         for (const route of routes) {
-            console.log(`Processing route: ${route.origin} -> ${route.destination} (Type: ${route.search_type})`);
+            console.log(`Processing route: ${route.origin} -> ${route.destination} (${route.destination_type || 'country'})`);
             
             const searchDates = generateSearchDates(route.search_type);
             
@@ -83,18 +85,30 @@ async function runMonitorLoop() {
                     console.log(`Scraping ${route.origin} -> ${route.destination} for ${startDate} to ${endDate}...`);
                     
                     let results = [];
+                    
+                    // 1. Try Google Flights (Supports country directly)
                     try {
                         results = await googleScraper.scrape(route.origin, route.destination, startDate, endDate);
                     } catch (googleErr) {
-                        console.error(`Google Flights scrape error: ${googleErr.message}. Falling back to Ctrip...`);
+                        console.error(`Google Flights scrape error: ${googleErr.message}`);
                     }
 
+                    // 2. Try Ctrip (Requires expansion if destination is a country)
                     if (results.length === 0) {
-                        console.log(`Google Flights returned no results for ${startDate}. Trying Ctrip...`);
-                        try {
-                            results = await ctripScraper.scrape(route.origin, route.destination, startDate, endDate);
-                        } catch (ctripErr) {
-                            console.error(`Ctrip scrape error: ${ctripErr.message}`);
+                        console.log(`Google Flights returned no results. Trying Ctrip...`);
+                        
+                        const ctripDestinations = (route.destination_type === 'country' || !route.destination_type)
+                            ? (countryAirports[route.destination] || [route.destination])
+                            : [route.destination];
+                            
+                        for (const airport of ctripDestinations) {
+                            try {
+                                console.log(`  Checking airport: ${airport}...`);
+                                const ctripResults = await ctripScraper.scrape(route.origin, airport, startDate, endDate);
+                                results = results.concat(ctripResults);
+                            } catch (ctripErr) {
+                                console.error(`  Ctrip scrape error for ${airport}: ${ctripErr.message}`);
+                            }
                         }
                     }
                     
@@ -107,7 +121,9 @@ async function runMonitorLoop() {
                             scrape_date: new Date().toISOString(),
                             travel_date: startDate,
                             airline: flight.airline,
-                            duration: flight.duration || 'N/A'
+                            duration: flight.duration || 'N/A',
+                            flight_number: flight.flightNumber || 'N/A',
+                            departure_time: flight.departureTime || 'N/A'
                         };
                         
                         try {

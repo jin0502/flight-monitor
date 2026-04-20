@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS monitored_routes (
     region TEXT NOT NULL,
     search_type TEXT NOT NULL,
     alert_threshold REAL,
+    destination_type TEXT DEFAULT 'country',
     UNIQUE(origin, destination, search_type)
 );
 
@@ -16,6 +17,9 @@ CREATE TABLE IF NOT EXISTS price_history (
     travel_date TEXT NOT NULL,
     airline TEXT,
     duration TEXT,
+    flight_number TEXT,
+    departure_time TEXT,
+    source_url TEXT,
     FOREIGN KEY (route_id) REFERENCES monitored_routes (id)
 );
 

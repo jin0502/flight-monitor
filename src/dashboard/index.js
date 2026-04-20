@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const { getDB, initDB } = require('../db');
 const dotenv = require('dotenv');
+const countryAirports = require('../data/country-airports');
 
 dotenv.config();
 
@@ -10,6 +11,15 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Routes
+
+/**
+ * @route GET /api/countries
+ * @description Retrieves the list of countries from the mapping data.
+ */
+app.get('/api/countries', (req, res) => {
+    const countries = Object.keys(countryAirports).sort();
+    res.json(countries);
+});
 
 /**
  * @route GET /api/routes
@@ -31,23 +41,24 @@ app.get('/api/routes', (req, res) => {
  * @description Adds a new route to monitor.
  * @param {Object} req.body - The route details.
  * @param {string} req.body.origin - The origin airport code.
- * @param {string} req.body.destination - The destination airport code.
+ * @param {string} req.body.destination - The destination (country or airport).
+ * @param {string} req.body.destination_type - 'country' or 'airport'.
  * @param {string} req.body.region - The region of the destination.
  * @param {string} req.body.search_type - The type of search (e.g., 'WEEKEND', 'FLEXIBLE').
  * @param {number} [req.body.alert_threshold] - Optional price threshold for alerts.
  * @returns {Object} The created route.
  */
 app.post('/api/routes', (req, res) => {
-    const { origin, destination, region, search_type, alert_threshold } = req.body;
+    const { origin, destination, destination_type, region, search_type, alert_threshold } = req.body;
     
     if (!origin || !destination || !region || !search_type) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
 
     const db = getDB();
-    const query = `INSERT INTO monitored_routes (origin, destination, region, search_type, alert_threshold)
-                   VALUES (?, ?, ?, ?, ?)`;
-    const params = [origin, destination, region, search_type, alert_threshold];
+    const query = `INSERT INTO monitored_routes (origin, destination, destination_type, region, search_type, alert_threshold)
+                   VALUES (?, ?, ?, ?, ?, ?)`;
+    const params = [origin, destination, destination_type || 'country', region, search_type, alert_threshold];
 
     db.run(query, params, function(err) {
         if (err) {
@@ -57,6 +68,7 @@ app.post('/api/routes', (req, res) => {
             id: this.lastID,
             origin,
             destination,
+            destination_type: destination_type || 'country',
             region,
             search_type,
             alert_threshold

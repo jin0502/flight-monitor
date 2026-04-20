@@ -15,12 +15,15 @@ const { sendDiscordNotification } = require('./channels/discord');
  * @param {string} priceData.travel_date The ISO string of the travel date.
  * @param {string} [priceData.airline] The airline name.
  * @param {string} [priceData.duration] The flight duration.
+ * @param {string} [priceData.flight_number] The flight number.
+ * @param {string} [priceData.departure_time] The departure time.
  * @param {import('sqlite3').Database} db The database instance.
  * @returns {Promise<boolean>} True if an alert was triggered, false otherwise.
  */
 async function checkAlerts(priceData, db) {
     return new Promise((resolve, reject) => {
         // 1. Deduplication: Check if same alert was sent recently (last 24h)
+        // Including flight_number in deduplication for better granularity
         const dedupeSql = `
             SELECT a.id 
             FROM alerts a 
@@ -29,6 +32,7 @@ async function checkAlerts(priceData, db) {
               AND ph.price = ? 
               AND ph.travel_date = ? 
               AND (ph.airline = ? OR (ph.airline IS NULL AND ? IS NULL))
+              AND (ph.flight_number = ? OR (ph.flight_number IS NULL AND ? IS NULL))
               AND a.sent_at > datetime('now', '-24 hours')
         `;
 
@@ -37,7 +41,9 @@ async function checkAlerts(priceData, db) {
             priceData.price, 
             priceData.travel_date, 
             priceData.airline || null,
-            priceData.airline || null
+            priceData.airline || null,
+            priceData.flight_number || null,
+            priceData.flight_number || null
         ], (err, existingAlert) => {
             if (err) return reject(err);
             if (existingAlert) {
@@ -63,14 +69,16 @@ async function checkAlerts(priceData, db) {
                 if (!row) return reject(new Error('Route not found'));
 
                 // 3. Insert into price_history
-                const insertPriceSql = `INSERT INTO price_history (route_id, price, scrape_date, travel_date, airline, duration) VALUES (?, ?, ?, ?, ?, ?)`;
+                const insertPriceSql = `INSERT INTO price_history (route_id, price, scrape_date, travel_date, airline, duration, flight_number, departure_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
                 const params = [
                     priceData.route_id,
                     priceData.price,
                     priceData.scrape_date,
                     priceData.travel_date,
                     priceData.airline,
-                    priceData.duration
+                    priceData.duration,
+                    priceData.flight_number,
+                    priceData.departure_time
                 ];
 
                 db.run(insertPriceSql, params, async function(err) {
@@ -97,11 +105,15 @@ async function checkAlerts(priceData, db) {
                     }
 
                     // 6. Create alerts and send notifications
-                    let completed = 0;
-                    let hasError = false;
-                    
                     // Construct alert message
-                    const alertMsg = `<b>Flight Alert!</b>\nRoute: ${row.origin} -> ${row.destination}\nPrice: <b>¥${priceData.price}</b>\nDate: ${priceData.travel_date}\nAirline: ${priceData.airline || 'Unknown'}\nType: ${alertsToCreate.map(a => a.type).join(', ')}`;
+                    const alertMsg = `🚀 <b>Flight Alert!</b>\n\n` +
+                                   `📍 <b>Route:</b> ${row.origin} ✈️ ${row.destination}\n` +
+                                   `💰 <b>Price:</b> <b>¥${priceData.price}</b>\n` +
+                                   `📅 <b>Date:</b> ${priceData.travel_date}\n` +
+                                   `⏰ <b>Takeoff:</b> ${priceData.departure_time || 'N/A'}\n` +
+                                   `🔢 <b>Flight No:</b> ${priceData.flight_number || 'N/A'}\n` +
+                                   `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n\n` +
+                                   `⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}`;
 
                     for (const alert of alertsToCreate) {
                         const insertAlertSql = `INSERT INTO alerts (price_history_id, sent_at, type) VALUES (?, ?, ?)`;

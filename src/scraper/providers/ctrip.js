@@ -18,8 +18,8 @@ class CtripScraper extends BaseScraper {
       throw new Error('Scraper not initialized. Call init() first.');
     }
 
-    // Try the suggested URL structure
-    const url = `https://www.trip.com/flights/${origin.toLowerCase()}-to-${destination.toLowerCase()}/tickets-${origin.toLowerCase()}-${destination.toLowerCase()}?ddate=${startDate}&rdate=${endDate}`;
+    // curr=CNY forces prices in Chinese Yuan
+    const url = `https://www.trip.com/flights/${origin.toLowerCase()}-to-${destination.toLowerCase()}/tickets-${origin.toLowerCase()}-${destination.toLowerCase()}?ddate=${startDate}&rdate=${endDate}&curr=CNY`;
     
     try {
       await this.page.goto(url, { waitUntil: 'domcontentloaded' });
@@ -91,7 +91,7 @@ class CtripScraper extends BaseScraper {
       // Extract data
       const flights = await this.page.$$eval(foundSelector, (elements) => {
         return elements.map(el => {
-          // Price - Trip.com often uses .price-amount or similar
+          // Price
           const priceEl = el.querySelector('.price-amount, .price, .item-price, [class*="price"], [class*="Price"]');
           const priceText = priceEl ? priceEl.innerText : '';
           
@@ -117,6 +117,15 @@ class CtripScraper extends BaseScraper {
             arrivalTime = timeEls[1].innerText;
           }
 
+          // Flight Number - Trip.com usually has a dedicated element or it's in the text
+          const flightNoEl = el.querySelector('.flight-no, .flight-number, [class*="FlightNo"]');
+          let flightNumber = flightNoEl ? flightNoEl.innerText : 'N/A';
+          
+          if (flightNumber === 'N/A') {
+              const match = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
+              flightNumber = match ? match[0] : 'N/A';
+          }
+
           const priceMatch = priceText.replace(/[^\d]/g, '');
           const price = priceMatch ? parseInt(priceMatch, 10) : null;
 
@@ -127,6 +136,7 @@ class CtripScraper extends BaseScraper {
             isNonStop: stopsText.toLowerCase().includes('direct') || stopsText.toLowerCase().includes('non-stop') || stopsText.includes('直飞'),
             departureTime,
             arrivalTime,
+            flightNumber,
             rawPrice: priceText,
             rawStops: stopsText
           };

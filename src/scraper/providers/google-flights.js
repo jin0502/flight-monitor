@@ -18,7 +18,8 @@ class GoogleFlightsScraper extends BaseScraper {
       throw new Error('Scraper not initialized. Call init() first.');
     }
 
-    const url = `https://www.google.com/travel/flights?q=Flights%20to%20${destination}%20from%20${origin}%20on%20${startDate}%20through%20${endDate}`;
+    // curr=CNY forces currency, hl=zh-CN forces Chinese language for easier parsing
+    const url = `https://www.google.com/travel/flights?q=Flights%20to%20${destination}%20from%20${origin}%20on%20${startDate}%20through%20${endDate}&curr=CNY&hl=zh-CN`;
     
     try {
       await this.page.goto(url, { waitUntil: 'networkidle' });
@@ -26,12 +27,12 @@ class GoogleFlightsScraper extends BaseScraper {
       // Handle cookie consent
       try {
         const consentSelectors = [
-          'button[aria-label="Accept all"]',
-          'button[aria-label="I agree"]',
-          'button:has-text("Accept all")',
-          'button:has-text("I agree")',
+          'button[aria-label="全部接受"]',
+          'button[aria-label="同意"]',
+          'button:has-text("全部接受")',
           'button:has-text("同意")',
-          'button:has-text("全部接受")'
+          'button:has-text("Accept all")',
+          'button:has-text("I agree")'
         ];
         
         for (const selector of consentSelectors) {
@@ -56,8 +57,8 @@ class GoogleFlightsScraper extends BaseScraper {
       // Extract data
       const flights = await this.page.$$eval('li.pIav2d', (elements) => {
         return elements.map(el => {
-          // Price: usually in a span with aria-label containing "Price" or with class .YMlS1d
-          const priceEl = el.querySelector('.YMlS1d') || el.querySelector('span[aria-label*="Price"]');
+          // Price
+          const priceEl = el.querySelector('.YMlS1d') || el.querySelector('span[aria-label*="价格"]');
           const priceText = priceEl ? priceEl.innerText : '';
           
           // Airline: .sSHqwe
@@ -82,6 +83,13 @@ class GoogleFlightsScraper extends BaseScraper {
             arrivalTime = timeSpans[1].innerText;
           }
 
+          // Flight Number - Often hidden or in sub-elements. 
+          // Google Flights results sometimes don't show the flight number directly in the list.
+          // We'll try to find any text like "MU523" or "JL82"
+          // Note: This is an attempt, may return N/A
+          const flightNumberMatch = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
+          const flightNumber = flightNumberMatch ? flightNumberMatch[0] : 'N/A';
+
           const priceMatch = priceText.replace(/[^\d]/g, '');
           const price = priceMatch ? parseInt(priceMatch, 10) : null;
 
@@ -92,6 +100,7 @@ class GoogleFlightsScraper extends BaseScraper {
             isNonStop: stopsText.toLowerCase().includes('nonstop') || stopsText.includes('直飞'),
             departureTime,
             arrivalTime,
+            flightNumber,
             rawPrice: priceText,
             rawStops: stopsText
           };

@@ -4,9 +4,46 @@ document.addEventListener('DOMContentLoaded', () => {
     const routeSelector = document.getElementById('route-selector');
     const priceTrendCanvas = document.getElementById('price-trend-chart');
     const priceHeatmapCanvas = document.getElementById('price-heatmap-chart');
+    
+    const destinationCountrySelect = document.getElementById('destination-country');
+    const destinationManualInput = document.getElementById('destination');
+    const destinationTypeInput = document.getElementById('destination_type');
 
     let priceTrendChart;
     let priceHeatmapChart;
+
+    // Fetch countries to populate dropdown
+    async function fetchCountries() {
+        try {
+            const response = await fetch('/api/countries');
+            const countries = await response.json();
+            
+            // Find the custom option and insert before it
+            const customOption = destinationCountrySelect.querySelector('option[value="custom"]');
+            
+            countries.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country;
+                option.textContent = country;
+                destinationCountrySelect.insertBefore(option, customOption);
+            });
+        } catch (error) {
+            console.error('Error fetching countries:', error);
+        }
+    }
+
+    // Handle country select change
+    destinationCountrySelect.addEventListener('change', () => {
+        if (destinationCountrySelect.value === 'custom') {
+            destinationManualInput.style.display = 'block';
+            destinationManualInput.required = true;
+            destinationTypeInput.value = 'airport';
+        } else {
+            destinationManualInput.style.display = 'none';
+            destinationManualInput.required = false;
+            destinationTypeInput.value = 'country';
+        }
+    });
 
     // Fetch and display monitored routes
     async function fetchRoutes() {
@@ -24,8 +61,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 li.innerHTML = `
                     <div class="route-info">
                         <strong>${route.origin} &rarr; ${route.destination}</strong>
+                        <span>Type: <b>${route.destination_type || 'country'}</b></span>
                         <span>${route.region} | ${route.search_type}</span>
-                        <span>Threshold: ${route.alert_threshold || 'None'}</span>
+                        <span>Threshold: <b>¥${route.alert_threshold || 'None'}</b></span>
                     </div>
                     <button class="btn-delete" data-id="${route.id}">Delete</button>
                 `;
@@ -55,9 +93,16 @@ document.addEventListener('DOMContentLoaded', () => {
     addRouteForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const formData = new FormData(addRouteForm);
+        
+        let destination = formData.get('destination_country');
+        if (destination === 'custom') {
+            destination = formData.get('destination');
+        }
+
         const data = {
             origin: formData.get('origin'),
-            destination: formData.get('destination'),
+            destination: destination,
+            destination_type: formData.get('destination_type'),
             region: formData.get('region'),
             search_type: formData.get('search_type'),
             alert_threshold: formData.get('alert_threshold') ? parseFloat(formData.get('alert_threshold')) : null
@@ -72,6 +117,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
             if (response.ok) {
                 addRouteForm.reset();
+                destinationManualInput.style.display = 'none';
+                destinationManualInput.required = false;
+                destinationTypeInput.value = 'country';
                 await fetchRoutes();
             } else {
                 const err = await response.json();
@@ -127,7 +175,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // 1. Price Trend Chart: Min price over scrape_date
         const trendData = {};
         data.forEach(item => {
-            const date = item.scrape_date.split(' ')[0]; // YYYY-MM-DD
+            const date = item.scrape_date.split('T')[0]; // ISO date part
             if (!trendData[date] || item.price < trendData[date]) {
                 trendData[date] = item.price;
             }
@@ -141,7 +189,7 @@ document.addEventListener('DOMContentLoaded', () => {
             data: {
                 labels: sortedDates,
                 datasets: [{
-                    label: 'Minimum Price Found',
+                    label: 'Minimum Price Found (CNY)',
                     data: trendValues,
                     borderColor: '#3498db',
                     backgroundColor: 'rgba(52, 152, 219, 0.2)',
@@ -159,20 +207,19 @@ document.addEventListener('DOMContentLoaded', () => {
         });
 
         // 2. Price "Heatmap" using Scatter chart
-        // X: travel_date, Y: scrape_date, Color: price
         const heatmapData = data.map(item => ({
             x: new Date(item.travel_date).getTime(),
             y: new Date(item.scrape_date).getTime(),
-            price: item.price
+            price: item.price,
+            flight: item.flight_number,
+            time: item.departure_time
         }));
 
-        // Determine price range for color scaling
         const minPrice = Math.min(...data.map(d => d.price));
         const maxPrice = Math.max(...data.map(d => d.price));
 
         function getPriceColor(price) {
             const ratio = (price - minPrice) / (maxPrice - minPrice || 1);
-            // Green (low) to Red (high)
             const r = Math.floor(255 * ratio);
             const g = Math.floor(255 * (1 - ratio));
             return `rgba(${r}, ${g}, 0, 0.7)`;
@@ -182,7 +229,7 @@ document.addEventListener('DOMContentLoaded', () => {
             type: 'scatter',
             data: {
                 datasets: [{
-                    label: 'Price Heatmap (Travel vs Scrape Date)',
+                    label: 'Price Points (Click for details)',
                     data: heatmapData,
                     pointBackgroundColor: heatmapData.map(d => getPriceColor(d.price)),
                     pointRadius: 8,
@@ -195,16 +242,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     x: {
                         type: 'linear',
                         title: { display: true, text: 'Travel Date' },
-                        ticks: {
-                            callback: (value) => new Date(value).toLocaleDateString()
-                        }
+                        ticks: { callback: (value) => new Date(value).toLocaleDateString() }
                     },
                     y: {
                         type: 'linear',
                         title: { display: true, text: 'Scrape Date' },
-                        ticks: {
-                            callback: (value) => new Date(value).toLocaleDateString()
-                        }
+                        ticks: { callback: (value) => new Date(value).toLocaleDateString() }
                     }
                 },
                 plugins: {
@@ -212,7 +255,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         callbacks: {
                             label: (context) => {
                                 const d = context.raw;
-                                return `Price: ${d.price} CNY | Travel: ${new Date(d.x).toLocaleDateString()} | Scraped: ${new Date(d.y).toLocaleDateString()}`;
+                                return `Price: ¥${d.price} | Flight: ${d.flight} | Time: ${d.time} | Travel: ${new Date(d.x).toLocaleDateString()}`;
                             }
                         }
                     }
@@ -222,5 +265,6 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Initial load
+    fetchCountries();
     fetchRoutes();
 });
