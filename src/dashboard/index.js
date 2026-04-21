@@ -80,7 +80,7 @@ app.get('/api/routes', (req, res) => {
  */
 app.post('/api/routes', (req, res) => {
     const { origin, destination, destination_type, region, search_type, alert_threshold } = req.body;
-    
+
     if (!origin || !destination || !region || !search_type) {
         return res.status(400).json({ error: 'Missing required fields' });
     }
@@ -90,7 +90,7 @@ app.post('/api/routes', (req, res) => {
                    VALUES (?, ?, ?, ?, ?, ?)`;
     const params = [origin, destination, destination_type || 'country', region, search_type, alert_threshold];
 
-    db.run(query, params, function(err) {
+    db.run(query, params, function (err) {
         if (err) {
             return res.status(500).json({ error: err.message });
         }
@@ -113,7 +113,7 @@ app.post('/api/routes', (req, res) => {
 app.delete('/api/routes/:id', (req, res) => {
     const { id } = req.params;
     const db = getDB();
-    db.run('DELETE FROM monitored_routes WHERE id = ?', id, function(err) {
+    db.run('DELETE FROM monitored_routes WHERE id = ?', id, function (err) {
         if (err) {
             return res.status(500).json({ error: err.message });
         }

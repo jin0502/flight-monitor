@@ -17,13 +17,14 @@ const { sendDiscordNotification } = require('./channels/discord');
  * @param {string} [priceData.duration] The flight duration.
  * @param {string} [priceData.flight_number] The flight number.
  * @param {string} [priceData.departure_time] The departure time.
+ * @param {string} [priceData.origin_airport_name] Full name of origin airport.
+ * @param {string} [priceData.destination_airport_name] Full name of destination airport.
  * @param {import('sqlite3').Database} db The database instance.
  * @returns {Promise<boolean>} True if an alert was triggered, false otherwise.
  */
 async function checkAlerts(priceData, db) {
     return new Promise((resolve, reject) => {
         // 1. Deduplication: Check if same alert was sent recently (last 24h)
-        // Including flight_number in deduplication for better granularity
         const dedupeSql = `
             SELECT a.id 
             FROM alerts a 
@@ -105,15 +106,28 @@ async function checkAlerts(priceData, db) {
                     }
 
                     // 6. Create alerts and send notifications
-                    // Construct alert message
-                    const alertMsg = `🚀 <b>Flight Alert!</b>\n\n` +
-                                   `📍 <b>Route:</b> ${row.origin} ✈️ ${row.destination}\n` +
-                                   `💰 <b>Price:</b> <b>¥${priceData.price}</b>\n` +
-                                   `📅 <b>Date:</b> ${priceData.travel_date}\n` +
-                                   `⏰ <b>Takeoff:</b> ${priceData.departure_time || 'N/A'}\n` +
-                                   `🔢 <b>Flight No:</b> ${priceData.flight_number || 'N/A'}\n` +
-                                   `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n\n` +
-                                   `⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}`;
+                    const originName = priceData.origin_airport_name || row.origin;
+                    const destinationName = priceData.destination_airport_name || row.destination;
+
+                    // Construct alert message (HTML for Telegram)
+                    let alertMsg = `🚀 <b>Flight Alert!</b>\n\n`;
+                    alertMsg += `📍 <b>Route:</b> ${originName} ✈️ ${destinationName}\n`;
+                    alertMsg += `💰 <b>Price:</b> <b>¥${priceData.price}</b>\n`;
+                    alertMsg += `📅 <b>Date:</b> ${priceData.travel_date}\n`;
+                    
+                    if (priceData.departure_time && priceData.departure_time !== 'N/A') {
+                        alertMsg += `⏰ <b>Takeoff:</b> ${priceData.departure_time}\n`;
+                    }
+                    
+                    if (priceData.flight_number && priceData.flight_number !== 'N/A') {
+                        alertMsg += `🔢 <b>Flight No:</b> ${priceData.flight_number}\n`;
+                    }
+                    
+                    alertMsg += `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n\n`;
+                    alertMsg += `⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}`;
+
+                    // Discord message (Markdown, plain text formatting)
+                    const discordMsg = alertMsg.replace(/<b>/g, '**').replace(/<\/b>/g, '**');
 
                     for (const alert of alertsToCreate) {
                         const insertAlertSql = `INSERT INTO alerts (price_history_id, sent_at, type) VALUES (?, ?, ?)`;
@@ -126,15 +140,10 @@ async function checkAlerts(priceData, db) {
                     }
 
                     // Send notifications (async, don't block the loop)
-                    const telegramPromise = sendTelegramNotification(alertMsg);
-                    if (telegramPromise && typeof telegramPromise.catch === 'function') {
-                        telegramPromise.catch(e => console.error('Telegram Error:', e.message));
-                    }
+                    sendTelegramNotification(alertMsg).catch(e => console.error('Telegram Error:', e.message));
                     
-                    const discordPromise = sendDiscordNotification(alertMsg);
-                    if (discordPromise && typeof discordPromise.catch === 'function') {
-                        discordPromise.catch(e => console.error('Discord Error:', e.message));
-                    }
+                    // Route Discord by country
+                    sendDiscordNotification(discordMsg, row.destination).catch(e => console.error('Discord Error:', e.message));
 
                     resolve(true);
                 });

@@ -25,8 +25,7 @@ module.exports = {
   'Switzerland': ['ZRH', 'GVA'],
   'Belgium': ['BRU'],
   'Austria': ['VIE'],
-  'Turkey': ['IST'],
   'United Arab Emirates': ['DXB', 'AUH'],
   'Qatar': ['DOH'],
-  'Russia': ['SVO', 'DME', 'VVO', 'OVB']
+  'Australia': ['SYD', 'MEL', 'BNE', 'PER', 'ADL', 'CNS']
 };

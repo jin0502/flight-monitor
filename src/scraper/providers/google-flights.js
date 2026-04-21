@@ -83,10 +83,15 @@ class GoogleFlightsScraper extends BaseScraper {
             arrivalTime = timeSpans[1].innerText;
           }
 
-          // Flight Number - Often hidden or in sub-elements. 
-          // Google Flights results sometimes don't show the flight number directly in the list.
-          // We'll try to find any text like "MU523" or "JL82"
-          // Note: This is an attempt, may return N/A
+          // Airport Names (if available in sub-text)
+          // Google sometimes puts airport names in aria-labels or smaller spans
+          const secondaryInfo = el.querySelectorAll('.sSHqwe span');
+          let destinationAirportName = '';
+          if (secondaryInfo.length > 0) {
+              // This is a naive heuristic, often the destination airport name is here
+          }
+
+          // Flight Number
           const flightNumberMatch = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
           const flightNumber = flightNumberMatch ? flightNumberMatch[0] : 'N/A';
 
@@ -101,6 +106,7 @@ class GoogleFlightsScraper extends BaseScraper {
             departureTime,
             arrivalTime,
             flightNumber,
+            destinationAirportName,
             rawPrice: priceText,
             rawStops: stopsText
           };

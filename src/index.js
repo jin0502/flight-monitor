@@ -114,6 +114,8 @@ async function runMonitorLoop() {
                     
                     console.log(`Found ${results.length} total results for ${startDate}.`);
                     
+                    const airportNames = require('./data/airport-names');
+
                     for (const flight of results) {
                         const priceData = {
                             route_id: route.id,
@@ -123,7 +125,9 @@ async function runMonitorLoop() {
                             airline: flight.airline,
                             duration: flight.duration || 'N/A',
                             flight_number: flight.flightNumber || 'N/A',
-                            departure_time: flight.departureTime || 'N/A'
+                            departure_time: flight.departureTime || 'N/A',
+                            origin_airport_name: flight.originAirportName || airportNames[route.origin] || route.origin,
+                            destination_airport_name: flight.destinationAirportName || airportNames[flight.destinationAirport] || airportNames[route.destination] || route.destination
                         };
                         
                         try {
@@ -158,8 +162,8 @@ function generateSearchDates(type) {
     const today = new Date();
     
     if (type === 'WEEKEND' || type === 'weekend') {
-        // Next 4 weekends (Fri to Mon)
-        for (let i = 1; i <= 4; i++) {
+        // Next 26 weekends (Fri to Mon) - approx 6 months
+        for (let i = 1; i <= 26; i++) {
             const friday = new Date(today);
             // Find next Friday
             friday.setDate(today.getDate() + (5 - today.getDay() + 7) % 7 + (i - 1) * 7);
@@ -185,15 +189,18 @@ function generateSearchDates(type) {
             });
         }
     } else {
-        // Default: Next week for 7 days if unknown type
-        const nextWeek = new Date(today);
-        nextWeek.setDate(today.getDate() + 7);
-        const returnDate = new Date(nextWeek);
-        returnDate.setDate(nextWeek.getDate() + 7);
-        dates.push({
-            startDate: formatDate(nextWeek),
-            endDate: formatDate(returnDate)
-        });
+        // Default: Bi-weekly for the next 6 months if unknown type
+        for (let i = 1; i <= 12; i++) {
+            const start = new Date(today);
+            start.setDate(today.getDate() + i * 14);
+            const end = new Date(start);
+            end.setDate(start.getDate() + 7);
+            
+            dates.push({
+                startDate: formatDate(start),
+                endDate: formatDate(end)
+            });
+        }
     }
     
     return dates;

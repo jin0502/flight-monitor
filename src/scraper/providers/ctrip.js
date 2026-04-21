@@ -117,7 +117,7 @@ class CtripScraper extends BaseScraper {
             arrivalTime = timeEls[1].innerText;
           }
 
-          // Flight Number - Trip.com usually has a dedicated element or it's in the text
+          // Flight Number
           const flightNoEl = el.querySelector('.flight-no, .flight-number, [class*="FlightNo"]');
           let flightNumber = flightNoEl ? flightNoEl.innerText : 'N/A';
           
@@ -143,7 +143,11 @@ class CtripScraper extends BaseScraper {
         });
       });
 
-      return flights.filter(f => f.price !== null && f.airline !== 'Unknown');
+      // Pass back the destination airport code for mapping
+      return flights.filter(f => f.price !== null && f.airline !== 'Unknown').map(f => ({
+          ...f,
+          destinationAirport: destination
+      }));
       
     } catch (error) {
       console.error(`Error scraping Trip.com: ${error.message}`);
