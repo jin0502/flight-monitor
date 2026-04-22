@@ -58,8 +58,9 @@ class GoogleFlightsScraper extends BaseScraper {
           }
 
           // Flight Number
-          // Heuristic: search for pattern like MU523, NH920
-          const flightNumberMatch = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
+          // Google often hides the flight number in the detail view, but it may be in textContent or aria-labels
+          const text = el.textContent || '';
+          const flightNumberMatch = text.match(/\b(?!CNY|USD)[A-Z]{1,2}\d{3,4}\b/);
           const flightNumber = flightNumberMatch ? flightNumberMatch[0] : 'N/A';
 
           const priceMatch = priceText.replace(/[^\d]/g, '');

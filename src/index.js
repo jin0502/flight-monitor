@@ -1,6 +1,7 @@
 const { initDB, getDB } = require('./db');
 const GoogleFlightsScraper = require('./scraper/providers/google-flights');
 const CtripScraper = require('./scraper/providers/ctrip');
+const TripDotComScraper = require('./scraper/providers/trip-dot-com');
 const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
@@ -66,6 +67,7 @@ async function runMonitorLoop() {
     const db = getDB();
     const googleScraper = new GoogleFlightsScraper();
     const ctripScraper = new CtripScraper();
+    const tripDotComScraper = new TripDotComScraper();
     
     let sharedBrowser = null;
     
@@ -86,6 +88,7 @@ async function runMonitorLoop() {
 
         await googleScraper.initWithBrowser(sharedBrowser);
         await ctripScraper.initWithBrowser(sharedBrowser);
+        await tripDotComScraper.initWithBrowser(sharedBrowser);
 
         // Get all routes to monitor
         const routes = await new Promise((resolve, reject) => {
@@ -110,29 +113,43 @@ async function runMonitorLoop() {
                     
                     let results = [];
                     
-                    // 1. Try Google Flights (Supports country directly)
-                    try {
-                        results = await googleScraper.scrape(route.origin, route.destination, startDate, endDate);
-                    } catch (googleErr) {
-                        console.error(`Google Flights scrape error: ${googleErr.message}`);
+                    // 1. Try Ctrip (Chinese) - TOP PRIORITY
+                    const destinations = (route.destination_type === 'country' || !route.destination_type)
+                        ? (countryAirports[route.destination] || [route.destination])
+                        : [route.destination];
+                        
+                    for (const airport of destinations) {
+                        try {
+                            console.log(`  Checking airport: ${airport}...`);
+                            const ctripResults = await ctripScraper.scrape(route.origin, airport, startDate, endDate);
+                            results = results.concat(ctripResults);
+                        } catch (ctripErr) {
+                            console.error(`  Ctrip.com error for ${airport}: ${ctripErr.message}`);
+                        }
                     }
 
-                    // 2. Try Ctrip (Requires expansion if destination is a country)
+                    // 2. Try Trip.com (International) if still no results
                     if (results.length === 0) {
-                        console.log(`Google Flights returned no results. Trying Ctrip...`);
+                        console.log(`Ctrip.com returned no results. Trying Trip.com (International)...`);
                         
-                        const ctripDestinations = (route.destination_type === 'country' || !route.destination_type)
-                            ? (countryAirports[route.destination] || [route.destination])
-                            : [route.destination];
-                            
-                        for (const airport of ctripDestinations) {
+                        for (const airport of destinations) {
                             try {
                                 console.log(`  Checking airport: ${airport}...`);
-                                const ctripResults = await ctripScraper.scrape(route.origin, airport, startDate, endDate);
-                                results = results.concat(ctripResults);
-                            } catch (ctripErr) {
-                                console.error(`  Ctrip scrape error for ${airport}: ${ctripErr.message}`);
+                                const tripResults = await tripDotComScraper.scrape(route.origin, airport, startDate, endDate);
+                                results = results.concat(tripResults);
+                            } catch (tripErr) {
+                                console.error(`  Trip.com error for ${airport}: ${tripErr.message}`);
                             }
+                        }
+                    }
+
+                    // 3. Try Google Flights if still no results
+                    if (results.length === 0) {
+                        console.log(`Trip.com returned no results. Trying Google Flights...`);
+                        try {
+                            results = await googleScraper.scrape(route.origin, route.destination, startDate, endDate);
+                        } catch (googleErr) {
+                            console.error(`Google Flights scrape error: ${googleErr.message}`);
                         }
                     }
                     
@@ -172,6 +189,7 @@ async function runMonitorLoop() {
     } finally {
         await googleScraper.close();
         await ctripScraper.close();
+        await tripDotComScraper.close();
         if (sharedBrowser) {
             await sharedBrowser.close();
         }

@@ -6,9 +6,9 @@ class CtripScraper extends BaseScraper {
   }
 
   /**
-   * Scrape flight data from Trip.com (Ctrip).
-   * @param {string} origin - Origin airport code (e.g., PVG).
-   * @param {string} destination - Destination airport code (e.g., TYO).
+   * Scrape flight data from Ctrip.com (Chinese).
+   * @param {string} origin - Origin airport code (e.g., SHA).
+   * @param {string} destination - Destination airport code (e.g., TAO).
    * @param {string} startDate - Start date (YYYY-MM-DD).
    * @param {string} endDate - End date (YYYY-MM-DD).
    * @returns {Promise<Array>} - List of flight objects.
@@ -18,65 +18,52 @@ class CtripScraper extends BaseScraper {
       throw new Error('Scraper not initialized. Call init() first.');
     }
 
-    const url = `https://www.trip.com/flights/${origin.toLowerCase()}-to-${destination.toLowerCase()}/tickets-${origin.toLowerCase()}-${destination.toLowerCase()}?ddate=${startDate}&rdate=${endDate}&curr=CNY`;
+    // Direct URL navigation is more reliable for Ctrip
+    const url = `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${startDate}`;
     
     try {
+      console.log(`Navigating to Ctrip: ${url}`);
       await this.page.goto(url, { waitUntil: 'domcontentloaded' });
+      
+      // Wait for content to load (Ctrip uses a skeleton UI)
       try {
-        await this.page.waitForLoadState('networkidle', { timeout: 15000 });
-      } catch (e) {}
-
-      // Wait for flight results
-      const resultSelectors = ['.flight-item', '.search-result-item', 'div[class*="FlightItem"]'];
-      let foundSelector = null;
-      for (const selector of resultSelectors) {
-        try {
-          await this.page.waitForSelector(selector, { timeout: 10000 });
-          foundSelector = selector;
-          break;
-        } catch (e) {}
+        await this.page.waitForSelector('.flight-item, .search-result-item', { timeout: 15000 });
+      } catch (e) {
+        console.warn('Ctrip: Results selector not found, checking for alternative selectors...');
       }
 
-      if (!foundSelector) return [];
-
-      const flights = await this.page.$$eval(foundSelector, (elements) => {
+      // Extract data
+      const flights = await this.page.$$eval('.flight-item, .search-result-item, [class*="flight-item"]', (elements) => {
         return elements.map(el => {
           // Price
-          const priceEl = el.querySelector('.price-amount, .price, [class*="price"], [class*="Price"]');
+          const priceEl = el.querySelector('.price, [class*="price"]');
           const priceText = priceEl ? priceEl.innerText : '';
           
           // Airline
-          const airlineEl = el.querySelector('.airline-name, .airline, [class*="airline"], [class*="AirlineName"]');
+          const airlineEl = el.querySelector('.airline-name, [class*="airline-name"]');
           const airline = airlineEl ? airlineEl.innerText : 'Unknown';
           
-          // Times & Airports
-          // Trip.com uses specific internal classes like .is-departure_2a2b
-          const depEl = el.querySelector('[class*="departure"], .is-departure_2a2b');
-          const arrEl = el.querySelector('[class*="arrival"], .is-arrival_f407');
-          
-          let departureTime = '';
-          if (depEl) {
-              const timeSpan = depEl.querySelector('span span') || depEl.querySelector('.time');
-              departureTime = timeSpan ? timeSpan.innerText : '';
-          }
-
-          let destinationAirportName = '';
-          if (arrEl) {
-              destinationAirportName = arrEl.getAttribute('aria-label') || '';
-              // Clean up "Arrival at Tokyo Haneda Airport" -> "Tokyo Haneda Airport"
-              destinationAirportName = destinationAirportName.replace(/Arrival at /i, '').replace(/到达 /i, '');
-          }
+          // Times
+          const depTimeEl = el.querySelector('.depart-box .time, [class*="depart"] .time');
+          const departureTime = depTimeEl ? depTimeEl.innerText : '';
 
           // Flight Number
-          // Often hidden in data attributes or detail sections
-          const flightNoEl = el.querySelector('[class*="flight-no"], [class*="FlightNo"]');
-          let flightNumber = flightNoEl ? flightNoEl.innerText : 'N/A';
+          // Heuristic: Search for patterns like MU3752, SC4660
+          // We exclude CNY and other currency-like patterns
+          const text = el.textContent || '';
+          const flightNumberMatch = text.match(/\b(?!CNY|USD)[A-Z]{1,2}\d{3,4}\b/);
+          let flightNumber = flightNumberMatch ? flightNumberMatch[0] : 'N/A';
           
           if (flightNumber === 'N/A') {
-              // Try to find it in the entire text of the element
-              const match = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
+              // Try broader match if specific one fails
+              const match = text.match(/[A-Z][A-Z0-9]\d{3,4}/);
               flightNumber = match ? match[0] : 'N/A';
           }
+
+          // Airport Names
+          const airportEls = el.querySelectorAll('.airport, [class*="airport"]');
+          const originAirportName = airportEls[0] ? airportEls[0].innerText : '';
+          const destinationAirportName = airportEls[1] ? airportEls[1].innerText : '';
 
           const priceMatch = priceText.replace(/[^\d]/g, '');
           const price = priceMatch ? parseInt(priceMatch, 10) : null;
@@ -86,6 +73,7 @@ class CtripScraper extends BaseScraper {
             airline,
             departureTime,
             flightNumber,
+            originAirportName,
             destinationAirportName,
             rawPrice: priceText
           };
@@ -98,7 +86,7 @@ class CtripScraper extends BaseScraper {
       }));
       
     } catch (error) {
-      console.error(`Error scraping Trip.com: ${error.message}`);
+      console.error(`Error scraping Ctrip.com (Chinese): ${error.message}`);
       return [];
     }
   }
