@@ -19,6 +19,9 @@ CREATE TABLE IF NOT EXISTS price_history (
     duration TEXT,
     flight_number TEXT,
     departure_time TEXT,
+    return_date TEXT,
+    return_flight_number TEXT,
+    return_departure_time TEXT,
     source_url TEXT,
     FOREIGN KEY (route_id) REFERENCES monitored_routes (id)
 );

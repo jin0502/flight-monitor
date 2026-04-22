@@ -17,6 +17,9 @@ const { sendDiscordNotification } = require('./channels/discord');
  * @param {string} [priceData.duration] The flight duration.
  * @param {string} [priceData.flight_number] The flight number.
  * @param {string} [priceData.departure_time] The departure time.
+ * @param {string} [priceData.return_date] The return travel date.
+ * @param {string} [priceData.return_flight_number] The return flight number.
+ * @param {string} [priceData.return_departure_time] The return departure time.
  * @param {string} [priceData.origin_airport_name] Full name of origin airport.
  * @param {string} [priceData.destination_airport_name] Full name of destination airport.
  * @param {import('sqlite3').Database} db The database instance.
@@ -70,7 +73,6 @@ async function checkAlerts(priceData, db) {
                 if (!row) return reject(new Error('Route not found'));
 
                 // 3. Insert into price_history
-                const insertPriceSql = `INSERT INTO price_history (route_id, price, scrape_date, travel_date, airline, duration, flight_number, departure_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
                 const params = [
                     priceData.route_id,
                     priceData.price,
@@ -79,8 +81,18 @@ async function checkAlerts(priceData, db) {
                     priceData.airline,
                     priceData.duration,
                     priceData.flight_number,
-                    priceData.departure_time
+                    priceData.departure_time,
+                    priceData.return_date,
+                    priceData.return_flight_number,
+                    priceData.return_departure_time
                 ];
+
+                const insertPriceSql = `
+                    INSERT INTO price_history (
+                        route_id, price, scrape_date, travel_date, airline, duration, flight_number, departure_time,
+                        return_date, return_flight_number, return_departure_time
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `;
 
                 db.run(insertPriceSql, params, async function(err) {
                     if (err) return reject(err);
@@ -120,13 +132,15 @@ async function checkAlerts(priceData, db) {
                     }
 
                     // 6. Create alerts and send notifications
-                    const originName = priceData.origin_airport_name || row.origin;
-                    const destinationName = priceData.destination_airport_name || row.destination;
+                    const originCode = priceData.origin_airport || row.origin;
+                    const destinationCode = priceData.destination_airport || row.destination;
 
                     // Construct alert message (HTML for Telegram)
                     let alertMsg = `🚀 <b>Flight Alert!</b>\n\n`;
-                    alertMsg += `📍 <b>Route:</b> ${originName} ✈️ ${destinationName}\n`;
-                    alertMsg += `💰 <b>Price:</b> <b>¥${priceData.price}</b>\n`;
+                    alertMsg += `📍 <b>Route:</b> ${originCode} ✈️ ${destinationCode}\n`;
+                    
+                    const priceLabel = priceData.return_date ? '(Round-Trip)' : '';
+                    alertMsg += `💰 <b>Price:</b> <b>¥${priceData.price}</b> ${priceLabel}\n`;
                     alertMsg += `📅 <b>Date:</b> ${priceData.travel_date}\n`;
                     
                     if (priceData.departure_time && priceData.departure_time !== 'N/A') {
@@ -137,16 +151,46 @@ async function checkAlerts(priceData, db) {
                         alertMsg += `🔢 <b>Flight No:</b> ${priceData.flight_number}\n`;
                     }
                     
-                    alertMsg += `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n\n`;
-                    alertMsg += `⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}`;
+                    alertMsg += `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n`;
+                    
+                    // Return Flight info for Round Trips
+                    if (priceData.return_date) {
+                        alertMsg += `\n--- <b>RETURN FLIGHT</b> ---\n`;
+                        alertMsg += `📅 <b>Date:</b> ${priceData.return_date}\n`;
+                        
+                        const hasReturnDetails = priceData.return_flight_number && 
+                            priceData.return_flight_number !== 'N/A' && 
+                            priceData.return_flight_number !== '';
+                            
+                        if (hasReturnDetails) {
+                            if (priceData.return_departure_time && priceData.return_departure_time !== 'N/A') {
+                                alertMsg += `⏰ <b>Takeoff:</b> ${priceData.return_departure_time}\n`;
+                            }
+                            alertMsg += `🔢 <b>Flight No:</b> ${priceData.return_flight_number}\n`;
+                            alertMsg += `🏢 <b>Airline:</b> ${priceData.return_airline || 'Unknown'}\n`;
+                        } else {
+                            alertMsg += `🔄 <b>Status:</b> Auto-selected by system for best price\n`;
+                        }
+                    }
+                    
+                    alertMsg += `\n⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}\n`;
+
+                    // Simple YYYY-MM-DD HH:mm format for Scraped At
+                    const simpleScrapedAt = priceData.scrape_date
+                        .replace('T', ' ')
+                        .substring(0, 16);
+                    alertMsg += `📅 <b>Scraped At:</b> ${simpleScrapedAt}`;
 
                     // Discord message (Markdown, plain text formatting)
                     const discordMsg = alertMsg.replace(/<b>/g, '**').replace(/<\/b>/g, '**');
 
                     for (const alert of alertsToCreate) {
                         const insertAlertSql = `INSERT INTO alerts (price_history_id, sent_at, type) VALUES (?, ?, ?)`;
+                        const now = new Date();
+                        const gmt8SentAt = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
+                        
                         await new Promise((res, rej) => {
-                            db.run(insertAlertSql, [priceHistoryId, new Date().toISOString(), alert.type], (err) => {
+                            db.run(insertAlertSql, [priceHistoryId, gmt8SentAt, alert.type], (err) => {
                                 if (err) rej(err);
                                 else res();
                             });

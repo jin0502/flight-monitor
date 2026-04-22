@@ -63,7 +63,9 @@ async function main() {
  * @returns {Promise<void>}
  */
 async function runMonitorLoop() {
-    console.log(`[${new Date().toISOString()}] Starting monitor loop...`);
+    const now = new Date();
+    const gmt8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
+    console.log(`[${gmt8Time}] Starting monitor loop...`);
     const db = getDB();
     const googleScraper = new GoogleFlightsScraper();
     const ctripScraper = new CtripScraper();
@@ -194,17 +196,25 @@ async function runMonitorLoop() {
                     const airportNames = require('./data/airport-names');
 
                     for (const flight of results) {
+                        const now = new Date();
+                        const gmt8ScrapeDate = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
+
                         const priceData = {
                             route_id: route.id,
                             price: flight.price,
-                            scrape_date: new Date().toISOString(),
+                            scrape_date: gmt8ScrapeDate,
                             travel_date: startDate,
                             airline: flight.airline,
                             duration: flight.duration || 'N/A',
                             flight_number: flight.flightNumber || 'N/A',
                             departure_time: flight.departureTime || 'N/A',
+                            // Return Info
+                            return_date: endDate || null,
+                            return_flight_number: flight.returnFlightNumber || 'N/A',
+                            return_departure_time: flight.returnDepartureTime || 'N/A',
+                            return_airline: flight.returnAirline || 'N/A',
                             origin_airport: route.origin,
-                            destination_airport: flight.destinationAirport || airport, // Use specific airport from loop
+                            destination_airport: flight.destinationAirport || airport,
                             origin_airport_name: flight.originAirportName || airportNames[route.origin] || route.origin,
                             destination_airport_name: flight.destinationAirportName || airportNames[flight.destinationAirport] || airportNames[airport] || airportNames[route.destination] || route.destination
                         };
@@ -227,7 +237,9 @@ async function runMonitorLoop() {
         if (sharedBrowser) {
             await sharedBrowser.close();
         }
-        console.log(`[${new Date().toISOString()}] Monitor loop finished.`);
+        const now = new Date();
+        const gmt8EndTime = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
+        console.log(`[${gmt8EndTime}] Monitor loop finished.`);
     }
 }
 

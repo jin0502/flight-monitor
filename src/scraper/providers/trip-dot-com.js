@@ -51,33 +51,47 @@ class TripDotComScraper extends BaseScraper {
           
           // Times & Airports
           // Trip.com uses specific internal classes like .is-departure_2a2b
-          const depEl = el.querySelector('[class*="departure"], .is-departure_2a2b');
-          const arrEl = el.querySelector('[class*="arrival"], .is-arrival_f407');
+          const legs = el.querySelectorAll('[class*="flight-item-leg"], .flight-item-leg, [class*="Leg"]');
           
           let departureTime = '';
-          if (depEl) {
-              const timeSpan = depEl.querySelector('span span') || depEl.querySelector('.time');
-              departureTime = timeSpan ? timeSpan.innerText : '';
+          let returnDepartureTime = '';
+          let flightNumber = 'N/A';
+          let returnFlightNumber = 'N/A';
+
+          if (legs.length > 0) {
+              // Outbound
+              const depEl = legs[0].querySelector('[class*="departure"], .is-departure_2a2b');
+              if (depEl) {
+                  const timeSpan = depEl.querySelector('span span') || depEl.querySelector('.time');
+                  departureTime = timeSpan ? timeSpan.innerText : '';
+              }
+              
+              const legText = legs[0].textContent || '';
+              const outMatch = legText.match(/\b(?!CNY|USD)[A-Z0-9]{2}\d{3,4}\b/);
+              flightNumber = outMatch ? outMatch[0] : 'N/A';
+
+              // Return (if round trip)
+              if (legs.length > 1) {
+                  const retEl = legs[1].querySelector('[class*="departure"], .is-departure_2a2b');
+                  if (retEl) {
+                      const timeSpan = retEl.querySelector('span span') || retEl.querySelector('.time');
+                      returnDepartureTime = timeSpan ? timeSpan.innerText : '';
+                  }
+                  
+                  const retLegText = legs[1].textContent || '';
+                  const retMatch = retLegText.match(/\b(?!CNY|USD)[A-Z0-9]{2}\d{3,4}\b/);
+                  returnFlightNumber = retMatch ? retMatch[0] : 'N/A';
+              }
           }
 
-          let destinationAirportName = '';
-          if (arrEl) {
-              destinationAirportName = arrEl.getAttribute('aria-label') || '';
-              // Clean up "Arrival at Tokyo Haneda Airport" -> "Tokyo Haneda Airport"
-              destinationAirportName = destinationAirportName.replace(/Arrival at /i, '').replace(/到达 /i, '');
-          }
-
-          // Flight Number
-          // Often hidden in data attributes or detail sections
-          // We use textContent to find hidden flight numbers
-          const flightNoEl = el.querySelector('[class*="flight-no"], [class*="FlightNo"]');
-          let flightNumber = flightNoEl ? (flightNoEl.textContent || flightNoEl.innerText).trim() : 'N/A';
-          
-          if (flightNumber === 'N/A' || flightNumber.length > 10 || /CNY|USD/.test(flightNumber)) {
-              // Try to find it in the entire text of the element (including hidden)
+          // Fallback for single-leg format or if legs selector fails
+          if (flightNumber === 'N/A') {
               const text = el.textContent || '';
-              const match = text.match(/\b(?!CNY|USD)[A-Z]{1,2}\d{3,4}\b/);
-              flightNumber = match ? match[0] : 'N/A';
+              const matches = [...text.matchAll(/\b(?!CNY|USD)[A-Z]{1,2}\d{3,4}\b/g)];
+              flightNumber = matches[0] ? matches[0][0] : 'N/A';
+              if (legs.length > 1 && matches[1]) {
+                  returnFlightNumber = matches[1][0];
+              }
           }
 
           const priceMatch = priceText.replace(/[^\d]/g, '');
@@ -88,7 +102,9 @@ class TripDotComScraper extends BaseScraper {
             airline,
             departureTime,
             flightNumber,
-            destinationAirportName,
+            returnDepartureTime,
+            returnFlightNumber,
+            destinationAirportName: '', // Usually hard to get unique per leg in this view
             rawPrice: priceText
           };
         });
