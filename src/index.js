@@ -126,8 +126,10 @@ async function runMonitorLoop() {
                             duration: flight.duration || 'N/A',
                             flight_number: flight.flightNumber || 'N/A',
                             departure_time: flight.departureTime || 'N/A',
+                            origin_airport: route.origin,
+                            destination_airport: flight.destinationAirport || airport, // Use specific airport from loop
                             origin_airport_name: flight.originAirportName || airportNames[route.origin] || route.origin,
-                            destination_airport_name: flight.destinationAirportName || airportNames[flight.destinationAirport] || airportNames[route.destination] || route.destination
+                            destination_airport_name: flight.destinationAirportName || airportNames[flight.destinationAirport] || airportNames[airport] || airportNames[route.destination] || route.destination
                         };
                         
                         try {

@@ -18,110 +18,62 @@ class CtripScraper extends BaseScraper {
       throw new Error('Scraper not initialized. Call init() first.');
     }
 
-    // curr=CNY forces prices in Chinese Yuan
     const url = `https://www.trip.com/flights/${origin.toLowerCase()}-to-${destination.toLowerCase()}/tickets-${origin.toLowerCase()}-${destination.toLowerCase()}?ddate=${startDate}&rdate=${endDate}&curr=CNY`;
     
     try {
       await this.page.goto(url, { waitUntil: 'domcontentloaded' });
       try {
         await this.page.waitForLoadState('networkidle', { timeout: 15000 });
-      } catch (e) {
-        // ignore networkidle timeout
-      }
+      } catch (e) {}
 
-      // Handle common overlays or popups
-      try {
-        const closeSelectors = [
-          '.close-icon',
-          '.pop-close',
-          'i.ls-close',
-          '.modal-close'
-        ];
-        for (const selector of closeSelectors) {
-          const btn = await this.page.$(selector);
-          if (btn) {
-            await btn.click();
-          }
-        }
-      } catch (e) {
-        // Silent catch
-      }
-
-      // Wait for flight results to load
-      const resultSelectors = [
-        '.flight-item',
-        '.search-result-item',
-        '.flight-card',
-        '.m-flight-item',
-        'div[class*="FlightItem"]',
-        'div[class*="SearchItem"]'
-      ];
-
+      // Wait for flight results
+      const resultSelectors = ['.flight-item', '.search-result-item', 'div[class*="FlightItem"]'];
       let foundSelector = null;
       for (const selector of resultSelectors) {
         try {
           await this.page.waitForSelector(selector, { timeout: 10000 });
           foundSelector = selector;
           break;
-        } catch (e) {
-          continue;
-        }
+        } catch (e) {}
       }
 
-      if (!foundSelector) {
-        // If it times out, try scrolling down a bit
-        await this.page.evaluate(() => window.scrollBy(0, 1000));
-        await this.page.waitForTimeout(2000);
-        for (const selector of resultSelectors) {
-          try {
-            await this.page.waitForSelector(selector, { timeout: 5000 });
-            foundSelector = selector;
-            break;
-          } catch (e) {
-            continue;
-          }
-        }
-      }
+      if (!foundSelector) return [];
 
-      if (!foundSelector) {
-        console.log(`No flights found or timed out on Trip.com for ${origin}->${destination}`);
-        return [];
-      }
-
-      // Extract data
       const flights = await this.page.$$eval(foundSelector, (elements) => {
         return elements.map(el => {
           // Price
-          const priceEl = el.querySelector('.price-amount, .price, .item-price, [class*="price"], [class*="Price"]');
+          const priceEl = el.querySelector('.price-amount, .price, [class*="price"], [class*="Price"]');
           const priceText = priceEl ? priceEl.innerText : '';
           
           // Airline
-          const airlineEl = el.querySelector('.airline-name, .airline, .name, [class*="AirlineName"], [class*="airline"]');
+          const airlineEl = el.querySelector('.airline-name, .airline, [class*="airline"], [class*="AirlineName"]');
           const airline = airlineEl ? airlineEl.innerText : 'Unknown';
           
-          // Duration
-          const durationEl = el.querySelector('.duration, .flight-duration, .time-use, [class*="Duration"]');
-          const duration = durationEl ? durationEl.innerText : 'Unknown';
+          // Times & Airports
+          // Trip.com uses specific internal classes like .is-departure_2a2b
+          const depEl = el.querySelector('[class*="departure"], .is-departure_2a2b');
+          const arrEl = el.querySelector('[class*="arrival"], .is-arrival_f407');
           
-          // Non-stop info
-          const stopsEl = el.querySelector('.stop-info, .stops, .flight-stop, [class*="Stop"]');
-          const stopsText = stopsEl ? stopsEl.innerText : '';
-          
-          // Times (Departure/Arrival)
-          const timeEls = el.querySelectorAll('.time, .hour, .flight-time, [class*="Time"]');
           let departureTime = '';
-          let arrivalTime = '';
-          
-          if (timeEls.length >= 2) {
-            departureTime = timeEls[0].innerText;
-            arrivalTime = timeEls[1].innerText;
+          if (depEl) {
+              const timeSpan = depEl.querySelector('span span') || depEl.querySelector('.time');
+              departureTime = timeSpan ? timeSpan.innerText : '';
+          }
+
+          let destinationAirportName = '';
+          if (arrEl) {
+              destinationAirportName = arrEl.getAttribute('aria-label') || '';
+              // Clean up "Arrival at Tokyo Haneda Airport" -> "Tokyo Haneda Airport"
+              destinationAirportName = destinationAirportName.replace(/Arrival at /i, '').replace(/到达 /i, '');
           }
 
           // Flight Number
-          const flightNoEl = el.querySelector('.flight-no, .flight-number, [class*="FlightNo"]');
+          // Often hidden in data attributes or detail sections
+          const flightNoEl = el.querySelector('[class*="flight-no"], [class*="FlightNo"]');
           let flightNumber = flightNoEl ? flightNoEl.innerText : 'N/A';
           
           if (flightNumber === 'N/A') {
+              // Try to find it in the entire text of the element
               const match = el.innerText.match(/[A-Z0-9]{2,3}\d{3,4}/);
               flightNumber = match ? match[0] : 'N/A';
           }
@@ -132,26 +84,22 @@ class CtripScraper extends BaseScraper {
           return {
             price,
             airline,
-            duration,
-            isNonStop: stopsText.toLowerCase().includes('direct') || stopsText.toLowerCase().includes('non-stop') || stopsText.includes('直飞'),
             departureTime,
-            arrivalTime,
             flightNumber,
-            rawPrice: priceText,
-            rawStops: stopsText
+            destinationAirportName,
+            rawPrice: priceText
           };
         });
       });
 
-      // Pass back the destination airport code for mapping
-      return flights.filter(f => f.price !== null && f.airline !== 'Unknown').map(f => ({
+      return flights.filter(f => f.price !== null).map(f => ({
           ...f,
           destinationAirport: destination
       }));
       
     } catch (error) {
       console.error(`Error scraping Trip.com: ${error.message}`);
-      throw error;
+      return [];
     }
   }
 }

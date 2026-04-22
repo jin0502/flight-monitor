@@ -93,15 +93,29 @@ async function checkAlerts(priceData, db) {
                         alertsToCreate.push({ type: 'THRESHOLD' });
                     }
 
-                    // 5. Compare with historical average (Price Drop > 20%)
-                    if (row.history_count >= 3 && row.avg_price) {
-                        const priceDropRatio = (row.avg_price - priceData.price) / row.avg_price;
-                        if (priceDropRatio >= 0.20) {
-                            alertsToCreate.push({ type: 'PRICE_DROP' });
-                        }
-                    }
+                    // 5. Compare with Day-Specific Minimum (PRICE_DROP)
+                    // We query the lowest price ever seen for this specific travel date
+                    const getMinForDateSql = `
+                        SELECT MIN(price) as min_price 
+                        FROM price_history 
+                        WHERE route_id = ? AND travel_date = ?
+                    `;
+                    
+                    await new Promise((res, rej) => {
+                        db.get(getMinForDateSql, [priceData.route_id, priceData.travel_date], (err, minRow) => {
+                            if (err) return rej(err);
+                            
+                            // If no history for this date yet, we don't alert PRICE_DROP 
+                            // (it will be the baseline for next time)
+                            if (minRow && minRow.min_price && priceData.price < minRow.min_price) {
+                                alertsToCreate.push({ type: 'PRICE_DROP' });
+                            }
+                            res();
+                        });
+                    });
 
                     if (alertsToCreate.length === 0) {
+                        // Still insert to DB so it becomes the new baseline if it's the lowest
                         return resolve(false);
                     }
 
