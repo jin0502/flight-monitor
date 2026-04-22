@@ -5,6 +5,7 @@ const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
 const countryAirports = require('./data/country-airports');
+const { chromium } = require('playwright');
 
 dotenv.config();
 
@@ -33,12 +34,19 @@ async function main() {
 
         // 3. Start Monitoring Loop
         console.log('Starting initial monitor loop...');
-        runMonitorLoop();
+        await runMonitorLoop(); // Use await here to track first run
         
-        // Schedule periodic scrapes
-        const intervalMs = SCRAPE_INTERVAL_HOURS * 60 * 60 * 1000;
-        console.log(`Scheduling next scrape in ${SCRAPE_INTERVAL_HOURS} hours.`);
-        setInterval(runMonitorLoop, intervalMs);
+        // Schedule periodic scrapes using a safer timeout pattern
+        const scheduleNext = () => {
+            const intervalMs = SCRAPE_INTERVAL_HOURS * 60 * 60 * 1000;
+            console.log(`Scheduling next scrape in ${SCRAPE_INTERVAL_HOURS} hours.`);
+            setTimeout(async () => {
+                await runMonitorLoop();
+                scheduleNext();
+            }, intervalMs);
+        };
+        
+        scheduleNext();
 
     } catch (err) {
         console.error('Startup error:', err);
@@ -59,9 +67,25 @@ async function runMonitorLoop() {
     const googleScraper = new GoogleFlightsScraper();
     const ctripScraper = new CtripScraper();
     
+    let sharedBrowser = null;
+    
     try {
-        await googleScraper.init(true); // Headless
-        await ctripScraper.init(true); // Headless
+        // Launch a single shared browser for all scrapers to save memory
+        sharedBrowser = await chromium.launch({ 
+            headless: true,
+            args: [
+                '--disable-gpu',
+                '--disable-dev-shm-usage',
+                '--disable-setuid-sandbox',
+                '--no-first-run',
+                '--no-sandbox',
+                '--no-zygote',
+                '--js-flags="--max-old-space-size=256"'
+            ]
+        });
+
+        await googleScraper.initWithBrowser(sharedBrowser);
+        await ctripScraper.initWithBrowser(sharedBrowser);
 
         // Get all routes to monitor
         const routes = await new Promise((resolve, reject) => {
@@ -148,6 +172,9 @@ async function runMonitorLoop() {
     } finally {
         await googleScraper.close();
         await ctripScraper.close();
+        if (sharedBrowser) {
+            await sharedBrowser.close();
+        }
         console.log(`[${new Date().toISOString()}] Monitor loop finished.`);
     }
 }
