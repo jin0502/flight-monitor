@@ -33,6 +33,15 @@ class BaseScraper {
   }
 
   /**
+   * Initialize using an existing page instance to save maximum memory.
+   * @param {Page} page - Existing Playwright page instance.
+   */
+  async initWithPage(page) {
+    this.page = page;
+    this.isSharedPage = true;
+  }
+
+  /**
    * Initialize using an existing browser instance to save memory.
    * @param {Browser} browser - Existing Playwright browser instance.
    */
@@ -71,6 +80,9 @@ class BaseScraper {
    * Close the browser instance (or just the context if shared).
    */
   async close() {
+    if (this.isSharedPage) {
+        return; // Don't close shared page
+    }
     if (this.context) {
       await this.context.close();
     }

@@ -72,7 +72,7 @@ async function runMonitorLoop() {
     let sharedBrowser = null;
     
     try {
-        // Launch a single shared browser for all scrapers to save memory
+        // Launch a single shared browser with aggressive resource-saving flags
         sharedBrowser = await chromium.launch({ 
             headless: true,
             args: [
@@ -82,13 +82,49 @@ async function runMonitorLoop() {
                 '--no-first-run',
                 '--no-sandbox',
                 '--no-zygote',
-                '--js-flags="--max-old-space-size=256"'
+                '--disable-extensions',
+                '--disable-component-update',
+                '--disable-background-networking',
+                '--disable-background-timer-throttling',
+                '--disable-backgrounding-occluded-windows',
+                '--disable-breakpad',
+                '--disable-client-side-phishing-detection',
+                '--disable-default-apps',
+                '--disable-hang-monitor',
+                '--disable-prompt-on-repost',
+                '--disable-sync',
+                '--js-flags="--max-old-space-size=256 --stack-size=1024"'
             ]
         });
 
-        await googleScraper.initWithBrowser(sharedBrowser);
-        await ctripScraper.initWithBrowser(sharedBrowser);
-        await tripDotComScraper.initWithBrowser(sharedBrowser);
+        // Create ONE context and ONE page to be shared by all scrapers
+        const context = await sharedBrowser.newContext({
+            viewport: { width: 800, height: 600 }, // Smaller viewport saves memory
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+        });
+        
+        const sharedPage = await context.newPage();
+        
+        // Aggressive resource blocking on the shared page
+        await sharedPage.route('**/*', (route) => {
+            const type = route.request().resourceType();
+            if (['image', 'media', 'font', 'stylesheet', 'other'].includes(type)) {
+                // We keep stylesheets for some sites that might break, 
+                // but blocking them saves the most CPU. 
+                // Let's stick to images/media/fonts for stability.
+                if (['image', 'media', 'font'].includes(type)) {
+                    route.abort();
+                } else {
+                    route.continue();
+                }
+            } else {
+                route.continue();
+            }
+        });
+
+        await googleScraper.initWithPage(sharedPage);
+        await ctripScraper.initWithPage(sharedPage);
+        await tripDotComScraper.initWithPage(sharedPage);
 
         // Get all routes to monitor
         const routes = await new Promise((resolve, reject) => {
@@ -187,9 +223,7 @@ async function runMonitorLoop() {
     } catch (err) {
         console.error('Monitor loop error:', err);
     } finally {
-        await googleScraper.close();
-        await ctripScraper.close();
-        await tripDotComScraper.close();
+        // Scrapers with initWithPage don't close the page/context themselves
         if (sharedBrowser) {
             await sharedBrowser.close();
         }
