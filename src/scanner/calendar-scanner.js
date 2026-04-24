@@ -20,14 +20,19 @@ class CalendarScanner {
         
         const apiHandler = async (response) => {
             const respUrl = response.url();
-            // Match the low price calendar API
-            if (respUrl.includes('/getlowpricecalendar') || respUrl.includes('/calendar/search')) {
+            // Match the low price calendar API (Ctrip updated endpoints)
+            if (respUrl.includes('/getLowPrice') || respUrl.includes('/getlowpricecalendar') || respUrl.includes('/calendar/search')) {
                 try {
                     const body = await response.json();
-                    if (body.result && body.result.lowPriceList) {
-                        calendarData = body.result.lowPriceList;
-                    } else if (body.data && body.data.lowPriceList) {
-                        calendarData = body.data.lowPriceList;
+                    let list = null;
+                    
+                    // Handle different response structures
+                    if (body.result && body.result.lowPriceList) list = body.result.lowPriceList;
+                    else if (body.data && body.data.lowPriceList) list = body.data.lowPriceList;
+                    else if (body.lowPriceList) list = body.lowPriceList;
+                    
+                    if (list && list.length > 0) {
+                        calendarData = list;
                     }
                 } catch (e) {
                     // Ignore parsing errors
@@ -40,13 +45,12 @@ class CalendarScanner {
         try {
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
             
-            // Sometimes we need to click the calendar to trigger the API if it didn't load automatically
-            // or wait a bit for it to populate.
-            await this.page.waitForTimeout(3000);
+            // Wait for API responses to settle
+            await this.page.waitForTimeout(5000);
 
             if (calendarData.length === 0) {
-                // Fallback: try to click "More dates" or "Calendar"
-                const calendarTrigger = await this.page.$('.low-price-bar, [class*="calendar"], [class*="lowPrice"]');
+                // Fallback: click on the calendar bar to trigger the fetch if it hasn't fired
+                const calendarTrigger = await this.page.$('[class*="lowPriceBar"], [class*="calendar"], .low-price-bar');
                 if (calendarTrigger) {
                     await calendarTrigger.click().catch(() => {});
                     await this.page.waitForTimeout(3000);

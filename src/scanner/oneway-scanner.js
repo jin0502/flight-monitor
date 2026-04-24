@@ -20,11 +20,14 @@ class OneWayScanner {
         
         const apiHandler = async (response) => {
             const respUrl = response.url();
-            if (respUrl.includes('/search/pull/') && !apiFlights) {
+            // Match the flight list API (Ctrip updated endpoints)
+            if ((respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/')) && !apiFlights) {
                 try {
                     const body = await response.json();
                     if (body.data && body.data.flightItineraryList) {
                         apiFlights = body.data.flightItineraryList;
+                    } else if (body.result && body.result.flightItineraryList) {
+                        apiFlights = body.result.flightItineraryList;
                     }
                 } catch (e) {}
             }
