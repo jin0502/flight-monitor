@@ -40,7 +40,7 @@ class CombinationEngine {
                 const diffTime = inDate - outDate;
                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
                 
-                return diffDays >= 3 && diffDays <= 7;
+                return diffDays >= 3 && diffDays <= 9;
             });
 
             matches.forEach(inbound => {

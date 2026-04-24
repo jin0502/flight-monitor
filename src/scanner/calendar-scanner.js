@@ -13,7 +13,8 @@ class CalendarScanner {
      * @returns {Promise<Array<string>>} - List of YYYY-MM-DD date strings.
      */
     async findCheapDates(origin, destination) {
-        const url = `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${this.getTodayStr()}`;
+        const { start } = this.getScanHorizon();
+        const url = `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${start}`;
         console.log(`[CalendarScanner] Scanning ${origin} -> ${destination} via ${url}`);
 
         let calendarData = [];
@@ -21,7 +22,7 @@ class CalendarScanner {
         const apiHandler = async (response) => {
             const respUrl = response.url();
             // Match the low price calendar API (Ctrip updated endpoints)
-            if (respUrl.includes('/getLowPrice') || respUrl.includes('/getlowpricecalendar') || respUrl.includes('/calendar/search')) {
+            if (respUrl.includes('LowestPriceSearch') || respUrl.includes('/lowestPrice') || respUrl.includes('/getLowPrice') || respUrl.includes('/getlowpricecalendar') || respUrl.includes('/calendar/search')) {
                 try {
                     const body = await response.json();
                     let list = null;
@@ -30,6 +31,7 @@ class CalendarScanner {
                     if (body.result && body.result.lowPriceList) list = body.result.lowPriceList;
                     else if (body.data && body.data.lowPriceList) list = body.data.lowPriceList;
                     else if (body.lowPriceList) list = body.lowPriceList;
+                    else if (body.priceList) list = body.priceList; // New International endpoint structure
                     
                     if (list && list.length > 0) {
                         calendarData = list;
@@ -74,15 +76,24 @@ class CalendarScanner {
 
     /**
      * Groups dates by month and picks top 3 cheapest per month.
+     * Filters for dates between 4 weeks from now and 6 months from now.
      * @param {Array} data - Raw lowPriceList items.
      * @returns {Array<string>} - Top date strings.
      */
     processCalendarData(data) {
         const months = {};
+        const { start, end } = this.getScanHorizon();
         
         data.forEach(item => {
-            if (!item.date || !item.price) return;
-            const month = item.date.substring(0, 7); // YYYY-MM
+            const date = item.date || item.dDate;
+            const price = item.price || item.adultPrice;
+
+            if (!date || !price) return;
+            
+            // Filter: Only dates between 4 weeks from now and 6 months from now
+            if (date < start || date > end) return;
+
+            const month = date.substring(0, 7); // YYYY-MM
             if (!months[month]) months[month] = [];
             months[month].push(item);
         });
@@ -97,9 +108,22 @@ class CalendarScanner {
         return topDates;
     }
 
-    getTodayStr() {
-        const d = new Date();
-        return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    /**
+     * Calculates the scan window: 4 weeks from now to 6 months from now.
+     * @returns {Object} { start: 'YYYY-MM-DD', end: 'YYYY-MM-DD' }
+     */
+    getScanHorizon() {
+        const now = new Date();
+        
+        const startDate = new Date(now.getTime() + (28 * 24 * 60 * 60 * 1000));
+        const endDate = new Date(now.getTime() + (180 * 24 * 60 * 60 * 1000));
+
+        const formatDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+        
+        return {
+            start: formatDate(startDate),
+            end: formatDate(endDate)
+        };
     }
 }
 
