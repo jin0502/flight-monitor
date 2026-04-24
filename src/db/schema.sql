@@ -26,5 +26,6 @@ CREATE TABLE IF NOT EXISTS flight_combinations (
     created_at TEXT NOT NULL,
     alerted INTEGER DEFAULT 0,
     FOREIGN KEY (outbound_flight_id) REFERENCES oneway_flights (id),
-    FOREIGN KEY (return_flight_id) REFERENCES oneway_flights (id)
+    FOREIGN KEY (return_flight_id) REFERENCES oneway_flights (id),
+    UNIQUE(outbound_flight_id, return_flight_id)
 );

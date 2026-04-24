@@ -71,6 +71,9 @@ class CombinationEngine {
             INSERT INTO flight_combinations 
             (outbound_flight_id, return_flight_id, total_price, gap_days, destination_code, created_at)
             VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(outbound_flight_id, return_flight_id) DO UPDATE SET
+            total_price = excluded.total_price,
+            created_at = excluded.created_at
         `);
 
         for (const c of combinations) {

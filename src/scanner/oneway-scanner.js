@@ -36,7 +36,7 @@ class OneWayScanner {
         this.page.on('response', apiHandler);
 
         try {
-            await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+            await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
             await this.page.waitForTimeout(5000); // Wait for API and rendering
         } catch (err) {
             console.error(`[OneWayScanner] Error during detailed scrape: ${err.message}`);
@@ -70,11 +70,19 @@ class OneWayScanner {
             if (flightList.length > 1) return;
 
             const flight = flightList[0];
-            const price = item.priceList[0].adultPrice;
-            const airline = segment.airlineName;
-            const flightNumber = flight.flightNo;
-            const depTime = flight.departureDateTime.split(' ')[1].substring(0, 5);
             
+            // Handle different price structures
+            const priceInfo = item.priceList[0];
+            const price = priceInfo.adultPrice || priceInfo.price;
+            
+            // Handle different airline/flight number fields
+            const airline = segment.airlineName || segment.airline;
+            const flightNumber = flight.flightNo || flight.flightNumber;
+            const depTimeRaw = flight.departureDateTime || flight.dTime;
+            const depTime = depTimeRaw.includes(' ') ? depTimeRaw.split(' ')[1].substring(0, 5) : depTimeRaw.substring(0, 5);
+            
+            if (!price || !flightNumber) return;
+
             results.push({
                 origin,
                 destination,
@@ -97,9 +105,14 @@ class OneWayScanner {
     async saveToDB(flights) {
         const db = getDB();
         const stmt = db.prepare(`
-            INSERT OR REPLACE INTO oneway_flights 
+            INSERT INTO oneway_flights 
             (origin, destination, flight_date, price, airline, flight_number, departure_time, duration, is_direct, scrape_date, source, month_key)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(origin, destination, flight_date, flight_number) DO UPDATE SET
+            price = excluded.price,
+            scrape_date = excluded.scrape_date,
+            departure_time = excluded.departure_time,
+            duration = excluded.duration
         `);
 
         for (const f of flights) {
@@ -116,6 +129,7 @@ class OneWayScanner {
             });
         }
         stmt.finalize();
+        console.log(`[OneWayScanner] Saved/Updated ${flights.length} flights in DB.`);
     }
 }
 

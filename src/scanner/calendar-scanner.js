@@ -45,7 +45,7 @@ class CalendarScanner {
         this.page.on('response', apiHandler);
 
         try {
-            await this.page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+            await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
             
             // Wait for API responses to settle
             await this.page.waitForTimeout(5000);
@@ -85,26 +85,44 @@ class CalendarScanner {
         const { start, end } = this.getScanHorizon();
         
         data.forEach(item => {
-            const date = item.date || item.dDate;
+            // Extract date - handle date, dDate, departDate and /Date(...)/ formats
+            let rawDate = item.date || item.dDate || item.departDate;
+            if (!rawDate) return;
+
+            let dateStr = '';
+            if (rawDate.includes('/Date(')) {
+                const timestamp = parseInt(rawDate.match(/\/Date\((\d+)/)[1]);
+                const d = new Date(timestamp);
+                dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            } else {
+                dateStr = rawDate.substring(0, 10);
+            }
+
+            // Extract price - handle price and adultPrice
             const price = item.price || item.adultPrice;
 
-            if (!date || !price) return;
+            if (!dateStr || price === undefined || price === null) return;
             
             // Filter: Only dates between 4 weeks from now and 6 months from now
-            if (date < start || date > end) return;
+            if (dateStr < start || dateStr > end) return;
 
-            const month = date.substring(0, 7); // YYYY-MM
+            const month = dateStr.substring(0, 7); // YYYY-MM
             if (!months[month]) months[month] = [];
-            months[month].push(item);
+            
+            // Store a normalized object
+            months[month].push({ date: dateStr, price: price });
         });
 
         const topDates = [];
         Object.keys(months).forEach(month => {
+            // Sort by normalized price
             const sorted = months[month].sort((a, b) => a.price - b.price);
+            // Map to normalized date
             const top3 = sorted.slice(0, 3).map(item => item.date);
             topDates.push(...top3);
         });
 
+        console.log(`[CalendarScanner] Processed ${data.length} items, found ${topDates.length} candidate dates in range.`);
         return topDates;
     }
 
