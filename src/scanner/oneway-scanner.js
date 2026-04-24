@@ -20,16 +20,22 @@ class OneWayScanner {
         
         const apiHandler = async (response) => {
             const respUrl = response.url();
-            // Match the flight list API (Ctrip updated endpoints)
-            if ((respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/')) && !apiFlights) {
+            const isMatch = respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/') || respUrl.includes('/batchSearch');
+            
+            if (isMatch && !apiFlights) {
                 try {
                     const body = await response.json();
-                    if (body.data && body.data.flightItineraryList) {
-                        apiFlights = body.data.flightItineraryList;
-                    } else if (body.result && body.result.flightItineraryList) {
-                        apiFlights = body.result.flightItineraryList;
+                    const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
+                    
+                    if (list && list.length > 0) {
+                        console.log(`[OneWayScanner] Captured flights from: ${respUrl.split('?')[0]} (${list.length} flights)`);
+                        apiFlights = list;
+                    } else {
+                        console.log(`[OneWayScanner] Intercepted empty list from: ${respUrl.split('?')[0]}`);
                     }
-                } catch (e) {}
+                } catch (e) {
+                    // Ignore parsing errors
+                }
             }
         };
 
@@ -37,7 +43,7 @@ class OneWayScanner {
 
         try {
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-            await this.page.waitForTimeout(5000); // Wait for API and rendering
+            await this.page.waitForTimeout(10000); // Wait for API and rendering
         } catch (err) {
             console.error(`[OneWayScanner] Error during detailed scrape: ${err.message}`);
         } finally {

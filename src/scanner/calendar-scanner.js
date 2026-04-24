@@ -25,16 +25,21 @@ class CalendarScanner {
             if (respUrl.includes('LowestPriceSearch') || respUrl.includes('/lowestPrice') || respUrl.includes('/getLowPrice') || respUrl.includes('/getlowpricecalendar') || respUrl.includes('/calendar/search')) {
                 try {
                     const body = await response.json();
-                    let list = null;
-                    
-                    // Handle different response structures
-                    if (body.result && body.result.lowPriceList) list = body.result.lowPriceList;
-                    else if (body.data && body.data.lowPriceList) list = body.data.lowPriceList;
-                    else if (body.lowPriceList) list = body.lowPriceList;
-                    else if (body.priceList) list = body.priceList; // New International endpoint structure
+                    const list = body.lowPriceList || body.data?.lowPriceList || body.priceList;
                     
                     if (list && list.length > 0) {
-                        calendarData = list;
+                        // Check if this is a "skeleton" response (all prices 0)
+                        const hasValidPrices = list.some(item => {
+                            const p = (item.price !== undefined && item.price !== null) ? item.price : item.adultPrice;
+                            return p > 0;
+                        });
+
+                        if (hasValidPrices) {
+                            calendarData = list;
+                        } else if (!calendarData) {
+                            // Only set skeleton if we have absolutely nothing else
+                            calendarData = list;
+                        }
                     }
                 } catch (e) {
                     // Ignore parsing errors
