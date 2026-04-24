@@ -4,8 +4,8 @@ const OneWayScanner = require('./oneway-scanner');
 const CombinationEngine = require('./combination-engine');
 const airports = require('../data/airports');
 
-async function runFullScan() {
-    console.log('[Orchestrator] Starting full scan cycle...');
+async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
+    console.log(`[Orchestrator] Starting scan cycle. Origin: ${targetOrigin}, Destination: ${targetDest || 'ALL'}`);
     
     let browser;
     try {
@@ -20,20 +20,31 @@ async function runFullScan() {
         const onewayScanner = new OneWayScanner(page);
         const combinationEngine = new CombinationEngine();
 
+        // Filter airports if targetDest is specified
+        const scanAirports = targetDest 
+            ? airports.filter(a => a.code.toUpperCase() === targetDest.toUpperCase())
+            : airports;
+
+        if (scanAirports.length === 0 && targetDest) {
+            console.warn(`[Orchestrator] Target destination ${targetDest} not found in airport list. Scanning all.`);
+        }
+
+        const finalAirports = scanAirports.length > 0 ? scanAirports : airports;
+
         // 1. & 2. Scrutinize all airports (Outbound and Return)
-        for (const airport of airports) {
+        for (const airport of finalAirports) {
             console.log(`[Orchestrator] Processing airport: ${airport.name} (${airport.code})`);
             
-            // Outbound: PVG -> X
-            const outDates = await calendarScanner.findCheapDates('PVG', airport.code);
+            // Outbound: Origin -> Destination
+            const outDates = await calendarScanner.findCheapDates(targetOrigin, airport.code);
             for (const date of outDates) {
-                await onewayScanner.scrapeDetailed('PVG', airport.code, date);
+                await onewayScanner.scrapeDetailed(targetOrigin, airport.code, date);
             }
 
-            // Inbound: X -> PVG
-            const inDates = await calendarScanner.findCheapDates(airport.code, 'PVG');
+            // Inbound: Destination -> Origin
+            const inDates = await calendarScanner.findCheapDates(airport.code, targetOrigin);
             for (const date of inDates) {
-                await onewayScanner.scrapeDetailed(airport.code, 'PVG', date);
+                await onewayScanner.scrapeDetailed(airport.code, targetOrigin, date);
             }
         }
 

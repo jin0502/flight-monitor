@@ -83,6 +83,8 @@ class CalendarScanner {
     processCalendarData(data) {
         const months = {};
         const { start, end } = this.getScanHorizon();
+        let skippedEmptyPrice = 0;
+        let skippedOutOfRange = 0;
         
         data.forEach(item => {
             // Extract date - handle date, dDate, departDate and /Date(...)/ formats
@@ -90,21 +92,33 @@ class CalendarScanner {
             if (!rawDate) return;
 
             let dateStr = '';
-            if (rawDate.includes('/Date(')) {
-                const timestamp = parseInt(rawDate.match(/\/Date\((\d+)/)[1]);
-                const d = new Date(timestamp);
+            if (typeof rawDate === 'string' && rawDate.includes('/Date(')) {
+                const match = rawDate.match(/\/Date\((\d+)/);
+                if (match) {
+                    const timestamp = parseInt(match[1]);
+                    const d = new Date(timestamp);
+                    dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                }
+            } else if (typeof rawDate === 'number') {
+                const d = new Date(rawDate);
                 dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-            } else {
+            } else if (typeof rawDate === 'string') {
                 dateStr = rawDate.substring(0, 10);
             }
 
-            // Extract price - handle price and adultPrice
-            const price = item.price || item.adultPrice;
+            // Extract price - handle price and adultPrice, and ensure it's a valid number > 0
+            const price = (item.price !== undefined && item.price !== null) ? item.price : item.adultPrice;
 
-            if (!dateStr || price === undefined || price === null) return;
+            if (!dateStr || price === undefined || price === null || price <= 0) {
+                skippedEmptyPrice++;
+                return;
+            }
             
             // Filter: Only dates between 4 weeks from now and 6 months from now
-            if (dateStr < start || dateStr > end) return;
+            if (dateStr < start || dateStr > end) {
+                skippedOutOfRange++;
+                return;
+            }
 
             const month = dateStr.substring(0, 7); // YYYY-MM
             if (!months[month]) months[month] = [];
@@ -122,7 +136,8 @@ class CalendarScanner {
             topDates.push(...top3);
         });
 
-        console.log(`[CalendarScanner] Processed ${data.length} items, found ${topDates.length} candidate dates in range.`);
+        console.log(`[CalendarScanner] Processed ${data.length} items. Horizon: ${start} to ${end}.`);
+        console.log(`[CalendarScanner] Valid: ${topDates.length}, Empty Price: ${skippedEmptyPrice}, Out of Range: ${skippedOutOfRange}`);
         return topDates;
     }
 

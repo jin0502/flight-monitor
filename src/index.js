@@ -76,11 +76,14 @@ async function runMonitorLoop() {
     const gmt8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
     console.log(`[${gmt8Time}] Starting One-Way Scan & Combination Cycle...`);
     
-    const db = getDB();
-    
     try {
+        // Parse CLI arguments
+        const args = process.argv.slice(2);
+        const originArg = args.includes('--origin') ? args[args.indexOf('--origin') + 1] : 'PVG';
+        const destArg = args.includes('--dest') ? args[args.indexOf('--dest') + 1] : null;
+
         // Run the orchestrator
-        const topDeals = await runFullScan();
+        const topDeals = await runFullScan(originArg, destArg);
         
         if (topDeals && topDeals.length > 0) {
             console.log(`Found ${topDeals.length} deals. Sending alerts...`);
