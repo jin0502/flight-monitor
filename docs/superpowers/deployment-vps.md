@@ -42,7 +42,7 @@ The system is pre-configured to run on low-end VPS hardware by using a **Single 
 ### JS Flag Configuration
 When running on a 2GB VPS, it is recommended to cap the Node.js memory. You can do this via PM2 or environment variables:
 ```bash
-export NODE_OPTIONS="--js-flags='--max-old-space-size=256 --stack-size=1024'"
+export NODE_OPTIONS="--max-old-space-size=256"
 ```
 
 ## 5. Configuration
@@ -61,6 +61,10 @@ DISCORD_WEBHOOK_URL=your_url
 The system now supports **Round-Trip** flights. Ensure your database schema is up to date:
 ```bash
 # If you have an existing database, apply these migrations:
+
+# First, ensure sqlite3 is installed:
+sudo apt-get install -y sqlite3
+
 sqlite3 ./data/flights.db "ALTER TABLE price_history ADD COLUMN return_date TEXT;"
 sqlite3 ./data/flights.db "ALTER TABLE price_history ADD COLUMN return_flight_number TEXT;"
 sqlite3 ./data/flights.db "ALTER TABLE price_history ADD COLUMN return_departure_time TEXT;"
@@ -70,7 +74,7 @@ sqlite3 ./data/flights.db "ALTER TABLE price_history ADD COLUMN return_departure
 
 ### Start with PM2 (Recommended for 2GB VPS)
 ```bash
-pm2 start src/index.js --name flight-monitor --node-args="--js-flags='--max-old-space-size=256'"
+pm2 start src/index.js --name flight-monitor --node-args="--max-old-space-size=256"
 ```
 
 ### Time Zone Note

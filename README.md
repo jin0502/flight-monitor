@@ -1,101 +1,77 @@
-# Shanghai Flight Monitor
+# Shanghai Flight Monitor (Next-Gen)
 
-A budget traveler tool designed to track and monitor flight prices from Shanghai (PVG/SHA) to various destinations in East Asia, Southeast Asia, and Europe. It automatically scrapes flight prices and sends alerts via Telegram or Discord when prices drop or meet specific thresholds.
+A high-efficiency one-way scanning and combination engine designed for budget travelers. It monitors 48 direct-flight airports from Shanghai (PVG/SHA) over a 6-month horizon, identifies the cheapest travel dates, and pairs them into optimal round-trip deals.
 
-## Architecture Diagram
+## 🚀 New Architecture
+
+The system operates in a three-phase scanning pipeline:
 
 ```mermaid
 graph TD;
-    A[Monitor Loop] -->|Scrape| B[Google Flights Scraper];
-    A -->|Fallback Scrape| C[Ctrip Scraper];
-    B --> D[Alert Engine];
-    C --> D[Alert Engine];
-    D -->|Check Deduplication / Thresholds| E[(SQLite Database)];
-    D -->|Price Drop / Threshold Met| F[Telegram / Discord];
-    G[Express Dashboard API] --> E;
-    G --> H[Frontend UI];
+    A[Orchestrator] -->|Phase 1| B[Calendar Scanner];
+    B -->|Find cheap dates| C[Ctrip API];
+    A -->|Phase 2| D[One-Way Scanner];
+    D -->|Detailed Scrape| E[(oneway_flights)];
+    A -->|Phase 3| F[Combination Engine];
+    F -->|Pair Out/In| G[(flight_combinations)];
+    G --> H[Alert Engine];
+    H -->|Top 5 Deals| I[Telegram / Discord];
+    J[Express Dashboard] --> G;
 ```
 
-## Prerequisites
+## 🛠️ Key Features
 
-- [Node.js](https://nodejs.org/) (v16 or higher recommended)
-- Firefox (Playwright requires a browser to run scraping, the project defaults to Firefox)
+- **Massive Coverage**: Automatically monitors 48 curated airports across Asia, Europe, and Oceania.
+- **Smart Pairing**: Finds optimal round-trip combinations with a 3-7 day gap.
+- **Direct Only**: Focuses strictly on direct flights for maximum travel comfort.
+- **Modern Dashboard**: Real-time visualization of scanned flights and top deals with a premium dark-mode UI.
 
-## Installation
+## 📋 Prerequisites
 
-1. Clone the repository:
+- **Node.js**: v18+ recommended.
+- **Playwright**: Installed with the Firefox browser engine.
+- **SQLite3**: For local data persistence.
+
+## ⚙️ Installation & Setup
+
+1. **Clone & Install**:
    ```bash
    git clone <repository_url>
    cd shanghai-flight-monitor
-   ```
-
-2. Install dependencies:
-   ```bash
    npm install
-   ```
-
-3. Install Playwright browsers (Firefox is required):
-   ```bash
    npx playwright install firefox
    ```
 
-## Configuration
+2. **Configuration**:
+   Copy `.env.example` to `.env` and fill in your credentials:
+   ```env
+   PORT=3000
+   TELEGRAM_BOT_TOKEN=...
+   TELEGRAM_CHAT_ID=...
+   DISCORD_WEBHOOK_URL=...
+   DB_PATH=./data/flights.db
+   ```
 
-Create a `.env` file in the root directory and configure the necessary environment variables:
+3. **Start Scanning**:
+   ```bash
+   npm start
+   ```
 
-```env
-# Server Port (Dashboard)
-PORT=3000
+## 📊 Dashboard
 
-# Scrape Interval in Hours
-SCRAPE_INTERVAL_HOURS=12
+Access the dashboard at `http://localhost:3000` to see:
+- **Top 5 Deals**: Ranked by total combination price.
+- **Scan Status**: Current progress of the 48-airport loop.
+- **One-Way Browser**: Recent direct flights found by the scanner.
 
-# Database Path (Optional, defaults to database.sqlite in root)
-DB_PATH=./database.sqlite
+## 📂 Project Structure
 
-# Telegram Configuration
-TELEGRAM_BOT_TOKEN=your_telegram_bot_token
-TELEGRAM_CHAT_ID=your_telegram_chat_id
+- `src/scanner/` - The core 3-phase scanning engine (Calendar, One-Way, Combinations).
+- `src/data/airports.js` - Curated list of monitored international airports.
+- `src/alerts/` - Logic for formatting and sending Top Deal notifications.
+- `src/dashboard/` - Real-time monitoring UI and API.
+- `src/db/` - Database schema and migration logic.
 
-# Discord Configuration
-DISCORD_WEBHOOK_URL=your_discord_webhook_url
-```
-
-## Usage
-
-### Start the Application
-
-To initialize the database, start the dashboard, and begin the monitoring loop:
-
-```bash
-npm start
-```
-
-### Development Mode
-
-To run the application with hot-reloading (using nodemon):
-
-```bash
-npm run dev
-```
-
-### Run Tests
-
-To execute the test suite (Jest):
-
-```bash
-npm test
-```
-
-## Project Structure
-
-- `src/index.js` - The main entry point, initializes the database, starts the dashboard, and schedules the scraper.
-- `src/scraper/` - Contains Playwright-based scraper implementations for Google Flights and Ctrip.
-- `src/db/` - SQLite database initialization and schema definitions.
-- `src/alerts/` - Logic for checking price thresholds and sending notifications via Discord/Telegram.
-- `src/dashboard/` - An Express-based API for viewing monitored routes and price histories.
-- `docs/` - Project specifications and design documents.
-
-## License
+## 🛡️ License
 
 ISC

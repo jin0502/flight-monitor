@@ -3,9 +3,9 @@
  */
 module.exports = {
   'China': [
-    'PEK', 'PKX', 'CAN', 'SZX', 'CTU', 'TFU', 'CKG', 'XMN', 'XIY', 'KMG', 
-    'WUH', 'TAO', 'CSX', 'SYX', 'HGH', 'NKG', 'FOC', 'KWL', 'LJG', 'HAK',
-    'URC', 'DLC', 'TNA', 'SHE', 'CGO', 'NNG', 'TYN', 'SJW', 'LHW', 'INC'
+    'CAN', 'SZX', 'CTU', 'TFU', 'CKG', 'XMN', 'XIY', 'KMG',
+    'SYX', 'FOC', 'KWL', 'LJG', 'HAK', 'URC', 'DLC', 'TNA',
+    'CGO', 'NNG', 'SJW', 'LHW', 'INC'
   ],
   'Japan': ['NRT', 'HND', 'KIX', 'NGO', 'FUK', 'CTS', 'OKA', 'KMQ', 'HIJ', 'MYJ'],
   'South Korea': ['ICN', 'GMP', 'PUS', 'CJU', 'TAE', 'MWX'],

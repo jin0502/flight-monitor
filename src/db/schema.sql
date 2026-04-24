@@ -1,35 +1,30 @@
-CREATE TABLE IF NOT EXISTS monitored_routes (
+CREATE TABLE IF NOT EXISTS oneway_flights (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     origin TEXT NOT NULL,
     destination TEXT NOT NULL,
-    region TEXT NOT NULL,
-    search_type TEXT NOT NULL,
-    alert_threshold REAL,
-    destination_type TEXT DEFAULT 'country',
-    UNIQUE(origin, destination, search_type)
-);
-
-CREATE TABLE IF NOT EXISTS price_history (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    route_id INTEGER NOT NULL,
+    flight_date TEXT NOT NULL,
     price REAL NOT NULL,
-    scrape_date TEXT NOT NULL,
-    travel_date TEXT NOT NULL,
     airline TEXT,
-    duration TEXT,
     flight_number TEXT,
     departure_time TEXT,
-    return_date TEXT,
-    return_flight_number TEXT,
-    return_departure_time TEXT,
-    source_url TEXT,
-    FOREIGN KEY (route_id) REFERENCES monitored_routes (id)
+    duration TEXT,
+    is_direct INTEGER DEFAULT 1,
+    scrape_date TEXT NOT NULL,
+    source TEXT NOT NULL,
+    month_key TEXT NOT NULL,
+    UNIQUE(origin, destination, flight_date, flight_number)
 );
 
-CREATE TABLE IF NOT EXISTS alerts (
+CREATE TABLE IF NOT EXISTS flight_combinations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    price_history_id INTEGER NOT NULL,
-    sent_at TEXT NOT NULL,
-    type TEXT NOT NULL,
-    FOREIGN KEY (price_history_id) REFERENCES price_history (id)
+    outbound_flight_id INTEGER NOT NULL,
+    return_flight_id INTEGER NOT NULL,
+    total_price REAL NOT NULL,
+    gap_days INTEGER NOT NULL,
+    destination_code TEXT NOT NULL,
+    destination_name TEXT,
+    created_at TEXT NOT NULL,
+    alerted INTEGER DEFAULT 0,
+    FOREIGN KEY (outbound_flight_id) REFERENCES oneway_flights (id),
+    FOREIGN KEY (return_flight_id) REFERENCES oneway_flights (id)
 );

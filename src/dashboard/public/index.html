@@ -3,92 +3,66 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Shanghai Flight Monitor Dashboard</title>
+    <title>Shanghai Flight Monitor | Dashboard</title>
     <link rel="stylesheet" href="style.css">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
         <header>
             <h1>Shanghai Flight Monitor</h1>
-            <p>Tracking the best flight prices from PVG/SHA</p>
+            <div id="scan-status" class="badge badge-direct">System Active</div>
         </header>
 
-        <section id="route-configuration">
-            <h2>Route Configuration</h2>
-            <form id="add-route-form">
-                <div class="form-group">
-                    <label for="origin">Origin (e.g., PVG, SHA)</label>
-                    <input type="text" id="origin" name="origin" required placeholder="PVG">
-                </div>
-                <div class="form-group">
-                    <label for="destination">Destination</label>
-                    <div class="destination-input-group">
-                        <select id="destination-country" name="destination_country" required>
-                            <option value="">-- Select Country --</option>
-                            <!-- Countries will be populated here -->
-                            <option value="custom">Manual Airport Code</option>
-                        </select>
-                        <input type="text" id="destination" name="destination" placeholder="OR Airport Code (e.g. KIX)" style="display: none;">
-                    </div>
-                    <input type="hidden" id="destination_type" name="destination_type" value="country">
-                </div>
-                <div class="form-group">
-                    <label for="region">Region</label>
-                    <select id="region" name="region" required>
-                        <option value="Asia">Asia</option>
-                        <option value="Europe">Europe</option>
-                        <option value="North America">North America</option>
-                        <option value="Oceania">Oceania</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="search_type">Search Type</label>
-                    <select id="search_type" name="search_type" required>
-                        <option value="one-way">One-way</option>
-                        <option value="round-trip">Round-trip</option>
-                    </select>
-                </div>
-                <div class="form-group">
-                    <label for="alert_threshold">Alert Threshold (CNY)</label>
-                    <input type="number" id="alert_threshold" name="alert_threshold" placeholder="1000">
-                </div>
-                <button type="submit" class="btn-primary">Add Route</button>
-            </form>
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Top Flight Deal</div>
+                <div id="stat-top-deal" class="stat-value">--</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Total Combinations</div>
+                <div id="stat-total-combos" class="stat-value">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Airports Monitored</div>
+                <div id="stat-total-airports" class="stat-value">48</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Last Scan</div>
+                <div id="stat-last-scan" class="stat-value">--</div>
+            </div>
+        </div>
 
-            <div id="monitored-routes-list">
-                <h3>Currently Monitored Routes</h3>
-                <ul id="routes-ul">
-                    <!-- Routes will be populated here -->
-                </ul>
+        <section id="top-deals">
+            <h2>🔥 Top Flight Combinations</h2>
+            <div id="deals-container" class="combinations-grid">
+                <div class="deal-card">Loading best deals...</div>
             </div>
         </section>
 
-        <section id="visualizations">
-            <h2>Price Visualizations</h2>
-            <div class="controls">
-                <label for="route-selector">Select Route:</label>
-                <select id="route-selector">
-                    <option value="">-- Choose a route --</option>
-                </select>
-            </div>
-            
-            <div class="charts-container">
-                <div class="chart-wrapper">
-                    <h3>Price Trends</h3>
-                    <canvas id="price-trend-chart"></canvas>
-                </div>
-                <div class="chart-wrapper">
-                    <h3>Price Heatmap (Last 30 Days)</h3>
-                    <div id="heatmap-placeholder" class="heatmap-container">
-                        <!-- Heatmap will be rendered here or as a specialized Chart.js chart -->
-                        <canvas id="price-heatmap-chart"></canvas>
-                    </div>
-                </div>
+        <section id="one-way-browser">
+            <h2>🌐 One-Way Results Browser</h2>
+            <div class="data-table-container">
+                <table id="flights-table">
+                    <thead>
+                        <tr>
+                            <th>Route</th>
+                            <th>Date</th>
+                            <th>Price</th>
+                            <th>Airline</th>
+                            <th>Type</th>
+                            <th>Scraped At</th>
+                        </tr>
+                    </thead>
+                    <tbody id="flights-body">
+                        <!-- Flights will be loaded here -->
+                    </tbody>
+                </table>
             </div>
         </section>
     </div>
 
-    <script src="app.js"></script>
 </body>
 </html>

@@ -210,6 +210,47 @@ async function checkAlerts(priceData, db) {
     });
 }
 
+/**
+ * Sends alerts for the top flight deals identified by the combination engine.
+ * @param {Array} deals - List of combination deals.
+ * @param {import('sqlite3').Database} db 
+ */
+async function sendTopDealAlerts(deals, db) {
+    const airportNames = require('../data/airport-names');
+    
+    for (let i = 0; i < deals.length; i++) {
+        const deal = deals[i];
+        const outName = airportNames[deal.destination_code] || deal.destination_code;
+        
+        let msg = `✈️ <b>Best Flight Deal #${i + 1} of ${deals.length}</b>\n\n`;
+        
+        msg += `🔵 <b>OUTBOUND:</b> Shanghai ✈️ ${outName}\n`;
+        msg += `📅 ${deal.out_date} | ⏰ ${deal.out_time}\n`;
+        msg += `✈ ${deal.out_fn} | ${deal.out_airline} | 💰 <b>¥${deal.out_price}</b>\n\n`;
+        
+        msg += `🔴 <b>RETURN:</b> ${outName} ✈️ Shanghai\n`;
+        msg += `📅 ${deal.ret_date} | ⏰ ${deal.ret_time}\n`;
+        msg += `✈ ${deal.ret_fn} | ${deal.ret_airline} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
+        
+        msg += `💰 <b>TOTAL: ¥${deal.total_price}</b> (${deal.gap_days}-day trip)`;
+
+        // Send notifications
+        const discordMsg = msg.replace(/<b>/g, '**').replace(/<\/b>/g, '**');
+        
+        await sendTelegramNotification(msg).catch(e => console.error('Telegram Error:', e.message));
+        await sendDiscordNotification(discordMsg, deal.destination_code).catch(e => console.error('Discord Error:', e.message));
+
+        // Mark as alerted
+        await new Promise((resolve, reject) => {
+            db.run('UPDATE flight_combinations SET alerted = 1 WHERE id = ?', [deal.id], (err) => {
+                if (err) reject(err);
+                else resolve();
+            });
+        });
+    }
+}
+
 module.exports = {
-    checkAlerts
+    checkAlerts,
+    sendTopDealAlerts
 };
