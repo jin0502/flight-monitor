@@ -220,30 +220,18 @@ async function sendTopDealAlerts(deals, db) {
     
     for (let i = 0; i < deals.length; i++) {
         const deal = deals[i];
-        const outName = airportNames[deal.destination_code] || deal.destination_code;
+        const originName = airportNames[deal.origin] || deal.origin;
+        const destName = airportNames[deal.destination_code] || deal.destination_code;
         
-        const formatComfort = (f) => {
-            let info = `✈ ${f.flight_no || f.flightNo} | ${f.airline}`;
-            if (f.aircraft_type || f.aircraftType) info += ` | <b>${f.aircraft_type || f.aircraftType}</b>`;
-            
-            let icons = [];
-            if (f.has_wifi || f.hasWifi) icons.push('📶');
-            if (f.has_entertainment || f.hasEntertainment) icons.push('📺');
-            if (f.has_power || f.hasPower) icons.push('⚡');
-            
-            if (icons.length > 0) info += ` | ${icons.join(' ')}`;
-            return info;
-        };
-
         let msg = `✈️ <b>Best Flight Deal #${i + 1} of ${deals.length}</b>\n\n`;
         
-        msg += `🔵 <b>OUTBOUND:</b> Shanghai ✈️ ${outName}\n`;
-        msg += `📅 ${deal.out_date} | ⏰ ${deal.out_time}\n`;
-        msg += `${formatComfort(deal.outbound || deal)} | 💰 <b>¥${deal.out_price}</b>\n\n`;
+        msg += `🔵 <b>OUTBOUND:</b>\n`;
+        msg += `📍 ${originName} ✈️ ${destName}\n`;
+        msg += `📅 ${deal.out_date} | 💰 <b>¥${deal.out_price}</b>\n\n`;
         
-        msg += `🔴 <b>RETURN:</b> ${outName} ✈️ Shanghai\n`;
-        msg += `📅 ${deal.ret_date} | ⏰ ${deal.ret_time}\n`;
-        msg += `${formatComfort(deal.inbound || deal)} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
+        msg += `🔴 <b>RETURN:</b>\n`;
+        msg += `📍 ${destName} ✈️ ${originName}\n`;
+        msg += `📅 ${deal.ret_date} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
         
         msg += `💰 <b>TOTAL: ¥${deal.total_price}</b> (${deal.gap_days}-day trip)`;
 
@@ -267,14 +255,25 @@ async function sendTopDealAlerts(deals, db) {
  * Sends a critical alert when browser session authentication is required.
  */
 async function sendAuthAlert() {
-    const msg = `⚠️ **ACTION REQUIRED: Ctrip Re-authentication Needed**\n\nThe scraper has detected a 'needUserLogin' block on the VPS. Please perform a remote login to refresh the session.\n\n📖 **Guide:** [Remote Login Guide](https://github.com/${process.env.GITHUB_REPOSITORY}/blob/main/docs/REMOTE_LOGIN.md)`;
+    const msg = `⚠️ **ACTION REQUIRED: Ctrip Re-authentication Needed**\n\nThe scraper has detected a 'needUserLogin' block. Please perform a remote login to refresh the session.\n\n📖 **Guide:** [Remote Login Guide](https://github.com/${process.env.GITHUB_REPOSITORY}/blob/main/docs/REMOTE_LOGIN.md)`;
     
-    console.log('[AlertEngine] Sending Re-auth Alert to Discord...');
+    console.log('[AlertEngine] Sending Re-auth Alert...');
     await sendDiscordNotification(msg, 'general').catch(e => console.error('Discord Auth Alert Error:', e.message));
+}
+
+/**
+ * Sends a critical alert when a Captcha is detected.
+ */
+async function sendCaptchaAlert() {
+    const msg = `🛡️ **ANTI-BOT TRIGGERED: Captcha Detected**\n\nCtrip has triggered a 'showCaptchaModal2' block. The scan has been stopped to protect the account/IP. Manual intervention or a cool-down period is required.`;
+    
+    console.log('[AlertEngine] Sending Captcha Alert...');
+    await sendDiscordNotification(msg, 'general').catch(e => console.error('Discord Captcha Alert Error:', e.message));
 }
 
 module.exports = {
     checkAlerts,
     sendTopDealAlerts,
-    sendAuthAlert
+    sendAuthAlert,
+    sendCaptchaAlert
 };

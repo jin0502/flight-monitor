@@ -11,7 +11,7 @@ class DirectCalendarScanner {
      * Finds the cheapest dates using direct HTTP APIs.
      * @param {string} origin - Origin airport code.
      * @param {string} destination - Destination airport code.
-     * @returns {Promise<Array<string>>} - List of YYYY-MM-DD date strings.
+     * @returns {Promise<Array<{date: string, price: number}>>} - List of date/price objects.
      */
     async findCheapDates(origin, destination) {
         const isDomestic = this.isDomesticRoute(origin, destination);
@@ -28,45 +28,31 @@ class DirectCalendarScanner {
         }
     }
 
-    isDomesticRoute(origin, destination) {
-        const o = airports.find(a => a.code === origin);
-        const d = airports.find(a => a.code === destination);
-        // Shanghai (PVG/SHA) is always domestic to other China airports
-        const isOriginChina = o?.region === 'China' || origin === 'PVG' || origin === 'SHA';
-        const isDestChina = d?.region === 'China' || destination === 'PVG' || destination === 'SHA';
-        return isOriginChina && isDestChina;
-    }
-
     async fetchDomestic(origin, destination) {
         const dCity = this.mapToCityCode(origin);
         const aCity = this.mapToCityCode(destination);
         
-        console.log(`[DirectCalendarScanner] Using Domestic API for ${dCity} -> ${aCity} (Original: ${origin} -> ${destination})`);
+        console.log(`[DirectCalendarScanner] Using Domestic API for ${dCity} -> ${aCity}`);
         const url = `${this.domesticApiUrl}?flightWay=Oneway&dcity=${dCity}&acity=${aCity}&direct=true&army=false`;
         
         const response = await this.get(url);
-        if (process.env.NODE_ENV === 'debug') {
-            console.log(`[DirectCalendarScanner] Raw Response for ${origin} -> ${destination}: ${response.substring(0, 500)}...`);
-        }
         const data = JSON.parse(response);
         
         if (!data.data || !data.data.oneWayPrice || !data.data.oneWayPrice[0]) {
-            console.log(`[DirectCalendarScanner] No domestic price data found for ${origin} -> ${destination}`);
             return [];
         }
         
         const priceMap = data.data.oneWayPrice[0];
-        const dates = Object.keys(priceMap)
+        const items = Object.keys(priceMap)
             .filter(d => priceMap[d] > 0)
             .map(d => ({
                 date: `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`,
                 price: priceMap[d]
             }))
             .sort((a, b) => a.price - b.price)
-            .slice(0, 3)
-            .map(item => item.date);
+            .slice(0, 15); // Get more candidates for combinations
             
-        return dates;
+        return items;
     }
 
     async fetchInternational(origin, destination) {
@@ -97,22 +83,28 @@ class DirectCalendarScanner {
         
         if (!data.priceList || !Array.isArray(data.priceList)) return [];
         
-        if (data.priceList.length > 0) {
-            console.log(`[DirectCalendarScanner] Sample item: ${JSON.stringify(data.priceList[0])}`);
-        }
-        
-        // Intl API returns a list of { price, departDate: "/Date(1777046400000+0800)/" }
-        const dates = data.priceList
+        const items = data.priceList
             .filter(item => item.price > 0)
             .sort((a, b) => a.price - b.price)
-            .slice(0, 3)
+            .slice(0, 15)
             .map(item => {
                 const ms = parseInt(item.departDate.match(/\d+/)[0]);
                 const d = new Date(ms);
-                return d.toISOString().split('T')[0];
+                return {
+                    date: d.toISOString().split('T')[0],
+                    price: item.price
+                };
             });
             
-        return dates;
+        return items;
+    }
+
+    isDomesticRoute(origin, destination) {
+        const o = airports.find(a => a.code === origin);
+        const d = airports.find(a => a.code === destination);
+        const isOriginChina = o?.region === 'China' || origin === 'PVG' || origin === 'SHA';
+        const isDestChina = d?.region === 'China' || destination === 'PVG' || destination === 'SHA';
+        return isOriginChina && isDestChina;
     }
 
     mapToCityCode(code) {
