@@ -17,14 +17,6 @@ class OneWayScanner {
         if (global.authAlertSent) {
             throw new Error('AUTH_REQUIRED');
         }
-        // Enable request interception
-        await this.page.route('**/*', route => {
-            const url = route.request().url();
-            if (url.includes('captcha') || url.includes('sec.ctrip.com') || url.includes('tracking')) {
-                return route.abort();
-            }
-            route.continue();
-        });
 
         const isIntl = !this.isDomestic(origin, destination);
         const url = isIntl 
@@ -32,82 +24,66 @@ class OneWayScanner {
             : `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`;
         
         console.log(`[OneWayScanner] Detailed scrape: ${origin} -> ${destination} on ${date} (${isIntl ? 'Intl' : 'Domestic'})`);
-        console.log(`[OneWayScanner] URL: ${url}`);
 
         let apiFlights = null;
-        let apiHandler;
-        
+
         try {
-            apiHandler = async (response) => {
+            // 1. Setup response capture promise
+            const responsePromise = this.page.waitForResponse(response => {
                 const respUrl = response.url();
-                const isMatch = respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/') || respUrl.includes('/batchSearch') || respUrl.includes('/products') || respUrl.includes('/FlightIntlAndInlandSearch');
-                
-                if (isMatch && !apiFlights) {
-                    console.log(`[OneWayScanner] Intercepted URL: ${respUrl.split('?')[0]}`);
-                    try {
-                        const body = await response.json();
-                        
-                        // Check for needUserLogin
-                        if (body.data?.needUserLogin === true || body.needUserLogin === true) {
-                            console.log('[OneWayScanner] Re-authentication required (needUserLogin: true)');
-                            const { sendAuthAlert } = require('../alerts');
-                            if (!global.authAlertSent) {
-                                sendAuthAlert().catch(e => console.error('Alert Error:', e.message));
-                                global.authAlertSent = true;
-                            }
-                            throw new Error('AUTH_REQUIRED');
+                return (respUrl.includes('/getFlightList') || 
+                        respUrl.includes('/search/pull/') || 
+                        respUrl.includes('/batchSearch') || 
+                        respUrl.includes('/products') || 
+                        respUrl.includes('/FlightIntlAndInlandSearch')) && 
+                        response.status() === 200;
+            }, { timeout: 45000 }).then(async (response) => {
+                try {
+                    const body = await response.json();
+                    
+                    // Check for needUserLogin
+                    if (body.data?.needUserLogin === true || body.needUserLogin === true) {
+                        console.log('[OneWayScanner] Re-authentication required');
+                        const { sendAuthAlert } = require('../alerts');
+                        if (!global.authAlertSent) {
+                            sendAuthAlert().catch(e => console.error('Alert Error:', e.message));
+                            global.authAlertSent = true;
                         }
-
-                        const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
-                        
-                        if (list && list.length > 0) {
-                            console.log(`[OneWayScanner] Captured ${list.length} flights.`);
-                            apiFlights = list;
-                        } else {
-                            console.log(`[OneWayScanner] Match found but list is empty. Keys: ${Object.keys(body).join(', ')}`);
-                            if (body.data) {
-                                console.log(`[OneWayScanner] Data keys: ${Object.keys(body.data).join(', ')}`);
-                            }
-                        }
-                    } catch (e) {
-                        console.log(`[OneWayScanner] JSON Parse Error: ${e.message}`);
+                        throw new Error('AUTH_REQUIRED');
                     }
+
+                    const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
+                    if (list && list.length > 0) {
+                        console.log(`[OneWayScanner] Captured ${list.length} flights.`);
+                        apiFlights = list;
+                    }
+                } catch (e) {
+                    if (e.message === 'AUTH_REQUIRED') throw e;
+                    console.log(`[OneWayScanner] JSON Parse Error: ${e.message}`);
                 }
-            };
+            }).catch(e => {
+                if (e.name !== 'TimeoutError' && e.message !== 'AUTH_REQUIRED') {
+                    console.log(`[OneWayScanner] Response Capture Error: ${e.message}`);
+                }
+            });
 
-            this.page.on('response', apiHandler);
-
+            // 2. Perform navigation
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
             
-            // Add a small human-like scroll to trigger activity/pull requests
+            // 3. Human activity
             await this.page.mouse.wheel(0, 500);
             await this.page.waitForTimeout(2000);
 
-            try {
-                const selectors = [
-                    '.login-pop-close', '.pc_login_close',
-                    '.ant-modal-close'
-                ];
-                for (const selector of selectors) {
-                    if (await this.page.isVisible(selector)) {
-                        await this.page.click(selector);
-                    }
-                }
-            } catch (e) {
-                // Ignore if popups not present
-            }
+            // 4. Wait for response processing
+            await responsePromise;
 
-            // Simulate human behavior
+            // 5. Interaction to trigger activity
             await this.page.mouse.move(Math.random() * 500, Math.random() * 500);
-            await this.page.evaluate(() => window.scrollBy(0, 300));
             await this.page.waitForTimeout(1000);
-            await this.page.evaluate(() => window.scrollBy(0, -300));
 
-            await this.page.waitForTimeout(7000); // Wait for API and rendering
         } catch (err) {
+            if (err.message === 'AUTH_REQUIRED') throw err;
             console.error(`[OneWayScanner] Error during detailed scrape: ${err.message}`);
-        } finally {
-            if (apiHandler) this.page.removeListener('response', apiHandler);
         }
 
         if (!apiFlights || apiFlights.length === 0) {
@@ -117,13 +93,12 @@ class OneWayScanner {
                 airline: 'UNKNOWN',
                 departTime: '00:00',
                 arrivalTime: '00:00',
-                price: 0, // Orchestrator should handle this by using calendar price
+                price: 0,
                 isFallback: true
             }];
         }
 
-        const processed = this.processApiFlights(apiFlights, origin, destination, date);
-        return processed;
+        return this.processApiFlights(apiFlights, origin, destination, date);
     }
 
     processApiFlights(apiFlights, origin, destination, date) {
@@ -174,7 +149,7 @@ class OneWayScanner {
             });
         });
 
-        // Sort by price and take top 5 (User suggestion: cheapest are usually on top anyway)
+        // Sort by price and take top 5
         results.sort((a, b) => a.price - b.price);
         return results.slice(0, 5);
     }
