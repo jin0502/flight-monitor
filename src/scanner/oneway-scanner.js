@@ -31,7 +31,11 @@ class OneWayScanner {
                         console.log(`[OneWayScanner] Captured flights from: ${respUrl.split('?')[0]} (${list.length} flights)`);
                         apiFlights = list;
                     } else {
-                        console.log(`[OneWayScanner] Intercepted empty list from: ${respUrl.split('?')[0]}`);
+                        // International batchSearch is a handshake, don't log "empty" unless it's domestic or pull
+                        const isIntlBatch = respUrl.includes('/international/') && respUrl.includes('/batchSearch');
+                        if (!isIntlBatch) {
+                            console.log(`[OneWayScanner] Intercepted empty list from: ${respUrl.split('?')[0]}`);
+                        }
                     }
                 } catch (e) {
                     // Ignore parsing errors
@@ -40,6 +44,9 @@ class OneWayScanner {
         };
 
         this.page.on('response', apiHandler);
+
+        const randomDelay = Math.floor(Math.random() * 2000) + 1000;
+        await this.page.waitForTimeout(randomDelay);
 
         try {
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
