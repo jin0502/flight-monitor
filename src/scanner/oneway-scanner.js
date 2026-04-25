@@ -69,17 +69,18 @@ class OneWayScanner {
             await this.page.waitForTimeout(2000);
 
             try {
+                const selectors = [
                     '.login-pop-close', '.pc_login_close',
                     '.ant-modal-close'
                 ];
                 for (const selector of selectors) {
-                    const btn = await this.page.$(selector);
-                    if (btn && await btn.isVisible()) {
-                        await btn.click();
-                        console.log(`[OneWayScanner] Closed popup: ${selector}`);
+                    if (await this.page.isVisible(selector)) {
+                        await this.page.click(selector);
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                // Ignore if popups not present
+            }
 
             // Simulate human behavior
             await this.page.mouse.move(Math.random() * 500, Math.random() * 500);
