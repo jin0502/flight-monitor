@@ -8,7 +8,8 @@
     "dev": "nodemon src/index.js",
     "test": "jest",
     "scrape": "node src/scraper.js",
-    "login": "node src/tools/remote-login.js"
+    "login": "node src/tools/remote-login.js",
+    "login-tunnel": "node src/tools/remote-login.js --tunnel"
   },
   "keywords": [
     "flight",

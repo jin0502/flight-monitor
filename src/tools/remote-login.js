@@ -21,17 +21,31 @@ async function headlessLogin() {
     if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
     const isHeadless = process.env.HEADLESS === 'true' || !process.env.DISPLAY;
-    console.log(`[1/3] Launching browser (Headless: ${isHeadless})...`);
+    const useTunnel = process.argv.includes('--tunnel');
+
+    console.log(`[1/3] Launching browser (Headless: ${isHeadless}, Tunnel: ${useTunnel})...`);
+
+    const launchArgs = [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-blink-features=AutomationControlled'
+    ];
+
+    if (useTunnel) {
+        launchArgs.push('--remote-debugging-port=9222');
+        console.log('\n--- SSH TUNNEL MODE ENABLED ---');
+        console.log('1. On your LOCAL machine, run:');
+        console.log('   ssh -L 9222:localhost:9222 user@your-vps-ip');
+        console.log('2. Open Chrome locally and go to: chrome://inspect/#devices');
+        console.log('3. Click "inspect" on the Ctrip target to log in.');
+        console.log('-------------------------------\n');
+    }
 
     const context = await chromium.launchPersistentContext(userDataDir, {
         headless: isHeadless, 
         userAgent: USER_AGENT,
         viewport: { width: 1280, height: 800 },
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-blink-features=AutomationControlled'
-        ]
+        args: launchArgs
     });
 
     const page = await context.newPage();
