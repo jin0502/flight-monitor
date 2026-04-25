@@ -58,44 +58,42 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
             console.log(`[Orchestrator] Processing airport: ${airport.name} (${airport.code})`);
             
             // --- OUTBOUND ---
-            let outDates = await directScanner.findCheapDates(targetOrigin, airport.code);
-            if (!outDates) outDates = [];
+            const outDates = await directScanner.findCheapDates(targetOrigin, airport.code);
 
             console.log(`[Orchestrator] Starting Phase 2 (Outbound) for ${outDates.length} dates...`);
-            for (const priceItem of outDates) {
-                const details = await onewayScanner.scrapeDetailed(targetOrigin, airport.code, priceItem.date);
+            for (const dateStr of outDates) {
+                const details = await onewayScanner.scrapeDetailed(targetOrigin, airport.code, dateStr);
                 for (const flight of details) {
                     await database.saveFlight({
                         origin: targetOrigin,
                         dest: airport.code,
-                        date: priceItem.date,
+                        date: dateStr,
                         flight_no: flight.flightNo,
                         airline: flight.airline,
                         depart_time: flight.departTime,
                         arrival_time: flight.arrivalTime,
-                        price: flight.isFallback ? priceItem.price : flight.price
+                        price: flight.price
                     });
                 }
                 await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);
             }
 
             // --- INBOUND ---
-            let inDates = await directScanner.findCheapDates(airport.code, targetOrigin);
-            if (!inDates) inDates = [];
+            const inDates = await directScanner.findCheapDates(airport.code, targetOrigin);
 
             console.log(`[Orchestrator] Starting Phase 2 (Inbound) for ${inDates.length} dates...`);
-            for (const priceItem of inDates) {
-                const details = await onewayScanner.scrapeDetailed(airport.code, targetOrigin, priceItem.date);
+            for (const dateStr of inDates) {
+                const details = await onewayScanner.scrapeDetailed(airport.code, targetOrigin, dateStr);
                 for (const flight of details) {
                     await database.saveFlight({
                         origin: airport.code,
                         dest: targetOrigin,
-                        date: priceItem.date,
+                        date: dateStr,
                         flight_no: flight.flightNo,
                         airline: flight.airline,
                         depart_time: flight.departTime,
                         arrival_time: flight.arrivalTime,
-                        price: flight.isFallback ? priceItem.price : flight.price
+                        price: flight.price
                     });
                 }
                 await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);

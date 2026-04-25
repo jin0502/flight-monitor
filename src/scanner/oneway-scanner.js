@@ -43,6 +43,18 @@ class OneWayScanner {
                     console.log(`[OneWayScanner] Intercepted URL: ${respUrl.split('?')[0]}`);
                     try {
                         const body = await response.json();
+                        
+                        // Check for needUserLogin
+                        if (body.data?.needUserLogin === true || body.needUserLogin === true) {
+                            console.log('[OneWayScanner] Re-authentication required (needUserLogin: true)');
+                            const { sendAuthAlert } = require('../alerts');
+                            // Use a simple global flag to avoid spamming alerts in one cycle
+                            if (!global.authAlertSent) {
+                                sendAuthAlert().catch(e => console.error('Alert Error:', e.message));
+                                global.authAlertSent = true;
+                            }
+                        }
+
                         const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
                         
                         if (list && list.length > 0) {

@@ -38,23 +38,33 @@ class DirectCalendarScanner {
     }
 
     async fetchDomestic(origin, destination) {
-        console.log(`[DirectCalendarScanner] Using Domestic API for ${origin} -> ${destination}`);
-        const url = `${this.domesticApiUrl}?flightWay=Oneway&dcity=${origin}&acity=${destination}&direct=true&army=false`;
+        const dCity = this.mapToCityCode(origin);
+        const aCity = this.mapToCityCode(destination);
+        
+        console.log(`[DirectCalendarScanner] Using Domestic API for ${dCity} -> ${aCity} (Original: ${origin} -> ${destination})`);
+        const url = `${this.domesticApiUrl}?flightWay=Oneway&dcity=${dCity}&acity=${aCity}&direct=true&army=false`;
         
         const response = await this.get(url);
+        if (process.env.NODE_ENV === 'debug') {
+            console.log(`[DirectCalendarScanner] Raw Response for ${origin} -> ${destination}: ${response.substring(0, 500)}...`);
+        }
         const data = JSON.parse(response);
         
-        if (!data.data || typeof data.data !== 'object') return [];
+        if (!data.data || !data.data.oneWayPrice || !data.data.oneWayPrice[0]) {
+            console.log(`[DirectCalendarScanner] No domestic price data found for ${origin} -> ${destination}`);
+            return [];
+        }
         
-        // Domestic API returns a map of { "20260512": 500, ... }
-        const dates = Object.keys(data.data)
-            .filter(d => data.data[d] > 0)
-            .sort((a, b) => data.data[a] - data.data[b])
-            .slice(0, 3)
-                .map(d => ({
+        const priceMap = data.data.oneWayPrice[0];
+        const dates = Object.keys(priceMap)
+            .filter(d => priceMap[d] > 0)
+            .map(d => ({
                 date: `${d.substring(0, 4)}-${d.substring(4, 6)}-${d.substring(6, 8)}`,
-                price: data.data[d]
-            }));
+                price: priceMap[d]
+            }))
+            .sort((a, b) => a.price - b.price)
+            .slice(0, 3)
+            .map(item => item.date);
             
         return dates;
     }
@@ -126,7 +136,12 @@ class DirectCalendarScanner {
 
     get(url) {
         return new Promise((resolve, reject) => {
-            https.get(url, (res) => {
+            const options = {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
+            };
+            https.get(url, options, (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
                 res.on('end', () => resolve(data));

@@ -250,7 +250,18 @@ async function sendTopDealAlerts(deals, db) {
     }
 }
 
+/**
+ * Sends a critical alert when browser session authentication is required.
+ */
+async function sendAuthAlert() {
+    const msg = `⚠️ **ACTION REQUIRED: Ctrip Re-authentication Needed**\n\nThe scraper has detected a 'needUserLogin' block on the VPS. Please perform a remote login to refresh the session.\n\n📖 **Guide:** [Remote Login Guide](https://github.com/${process.env.GITHUB_REPOSITORY}/blob/main/docs/REMOTE_LOGIN.md)`;
+    
+    console.log('[AlertEngine] Sending Re-auth Alert to Discord...');
+    await sendDiscordNotification(msg, 'general').catch(e => console.error('Discord Auth Alert Error:', e.message));
+}
+
 module.exports = {
     checkAlerts,
-    sendTopDealAlerts
+    sendTopDealAlerts,
+    sendAuthAlert
 };
