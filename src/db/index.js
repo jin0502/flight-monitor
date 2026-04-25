@@ -25,7 +25,29 @@ function initDB(dbPath) {
                     console.error('Error initializing tables:', err.message);
                     return reject(err);
                 }
-                resolve(db);
+
+                // MIGRATION: Ensure new columns exist in existing tables
+                const columns = [
+                    'aircraft_type TEXT',
+                    'seat_pitch TEXT',
+                    'has_wifi INTEGER DEFAULT 0',
+                    'has_entertainment INTEGER DEFAULT 0',
+                    'has_power INTEGER DEFAULT 0'
+                ];
+
+                const checkAndAdd = async () => {
+                    for (const colDef of columns) {
+                        const colName = colDef.split(' ')[0];
+                        await new Promise((res) => {
+                            db.run(`ALTER TABLE flights ADD COLUMN ${colDef}`, (err) => {
+                                // Ignore error if column already exists
+                                res();
+                            });
+                        });
+                    }
+                };
+
+                checkAndAdd().then(() => resolve(db));
             });
         });
     });

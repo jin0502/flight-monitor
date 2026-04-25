@@ -4,91 +4,64 @@ const airports = require('../data/airports');
 class OneWayScanner {
     constructor(page) {
         this.page = page;
+        // Pipe browser console logs to terminal
+        this.page.on('console', msg => {
+            if (msg.type() === 'log' || msg.type() === 'error') {
+                console.log(`[Browser] ${msg.text()}`);
+            }
+        });
     }
 
     async scrapeDetailed(origin, destination, date) {
-        console.log(`[OneWayScanner] API fetch: ${origin} -> ${destination} on ${date}`);
+        console.log(`[OneWayScanner] Navigation search for: ${origin} -> ${destination} on ${date}`);
 
-        let apiFlights = null;
-        let retryCount = 0;
-        const maxRetries = 2;
-
-        while (retryCount < maxRetries && !apiFlights) {
+        // Construct the real search URL
+        const searchUrl = `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}&cabin=y_s&adult=1&child=0&infant=0`;
+        
+        let apiFlights = [];
+        try {
+            // Wait for the specific API response while navigating
+            const responsePromise = this.page.waitForResponse(res => res.url().includes('flightListSearch') && res.status() === 200, { timeout: 30000 });
+            
+            await this.page.goto(searchUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+            
             try {
-                // Ensure we are on the right domain for cookies (ctrip.com for 14022 API)
-                if (!this.page.url().includes('ctrip.com')) {
-                    console.log(`[OneWayScanner] Navigating to ctrip.com for session context...`);
-                    await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-                }
-
-                apiFlights = await this.page.evaluate(async (params) => {
-                    const { origin, destination, date } = params;
-
-                    // Map to city codes (SHA instead of PVG etc) for mainland API
-                    const mapCity = (code) => {
-                        const m = { 'PVG': 'SHA', 'SHA': 'SHA', 'NRT': 'TYO', 'HND': 'TYO', 'KIX': 'OSA', 'NGO': 'OSA', 'ICN': 'SEL', 'GMP': 'SEL' };
-                        return m[code] || code;
-                    };
-
-                    const payload = {
-                        "searchCriteria": {
-                            "tripType": 1,
-                            "journeyNo": 1,
-                            "passengerInfoType": { "adultCount": 1, "childCount": 0, "infantCount": 0 },
-                            "journeyInfoTypes": [{
-                                "journeyNo": 1,
-                                "departDate": date,
-                                "departCode": mapCity(origin),
-                                "arriveCode": mapCity(destination)
-                            }]
-                        },
-                        "Head": {
-                            "Locale": "zh-CN",
-                            "Currency": "CNY",
-                            "Group": "Trip",
-                            "Source": "ONLINE",
-                            "Version": "3"
-                        }
-                    };
-
-                    const res = await fetch("https://m.ctrip.com/restapi/soa2/14022/flightListSearch", {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(payload)
-                    });
-                    
-                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                    const json = await res.json();
-                    
-                    if (!json.fltitem || json.fltitem.length === 0) {
-                        console.log(`[OneWayScanner] API returned empty fltitem. Response Status: ${JSON.stringify(json.ResponseStatus || {})}`);
-                        if (json.rltmsg) console.log(`[OneWayScanner] Result Msg: ${json.rltmsg}`);
-                    }
-
-                    return json.fltitem || json.data?.flightItineraryList || [];
-                }, { origin, destination, date });
-
-                if (apiFlights && apiFlights.length > 0) {
-                    console.log(`[OneWayScanner] SUCCESS! Fetched ${apiFlights.length} flights via internal API.`);
-                } else {
-                    console.log(`[OneWayScanner] Empty results from API.`);
-                    if (retryCount === 0) {
-                        await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-                    }
-                }
-
-            } catch (err) {
-                console.log(`[OneWayScanner] Error: ${err.message}. Retry ${retryCount + 1}`);
-                retryCount++;
-                try { await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch (e) {}
+                const response = await responsePromise;
+                const json = await response.json();
+                apiFlights = json.fltitem || [];
+                console.log(`[OneWayScanner] Interception SUCCESS! Found ${apiFlights.length} flights.`);
+            } catch (pErr) {
+                console.log(`[OneWayScanner] Interception timed out, trying DOM fallback...`);
+                // Wait for the list to appear in DOM
+                await this.page.waitForSelector('.search-list, .flight-item', { timeout: 15000 }).catch(() => {});
+                
+                // DOM FALLBACK: Extract basic data if API intercept fails
+                apiFlights = await this.page.evaluate(() => {
+                    const items = document.querySelectorAll('.search-list-item, .flight-item');
+                    return Array.from(items).map(el => {
+                        const price = el.querySelector('.price, .item-price')?.innerText.replace(/[^0-9]/g, '');
+                        const fn = el.querySelector('.flight-no, .item-flight-no')?.innerText;
+                        const airline = el.querySelector('.airline-name, .item-airline-name')?.innerText;
+                        const times = el.querySelectorAll('.time, .item-time');
+                        return {
+                            msegments: [{
+                                fn: fn || 'UNK',
+                                an: airline || 'UNK',
+                                dt: times[0]?.innerText || '00:00',
+                                at: times[1]?.innerText || '00:00'
+                            }],
+                            lp: parseInt(price) || 0
+                        };
+                    }).filter(f => f.lp > 0);
+                });
+                console.log(`[OneWayScanner] DOM Fallback SUCCESS! Found ${apiFlights.length} flights.`);
             }
+
+        } catch (err) {
+            console.log(`[OneWayScanner] Navigation Failed: ${err.message}.`);
         }
 
-        // Delay to prevent rate limiting
-        await new Promise(r => setTimeout(r, 2000));
-
         if (!apiFlights || apiFlights.length === 0) {
-            console.log(`[OneWayScanner] Failed to fetch flight list.`);
             return [];
         }
 
@@ -142,14 +115,14 @@ class OneWayScanner {
                         "flightNo": f.flightNo
                     })),
                     "Head": {
-                        "Locale": "en-US",
-                        "Currency": "USD",
-                        "Group": "Trip",
-                        "Source": "ONLINE"
+                        "Locale": "zh-CN",
+                        "Currency": "CNY",
+                        "Group": "Ctrip",
+                        "Source": "PC"
                     }
                 };
 
-                const res = await fetch("https://us.trip.com/restapi/soa2/14427/BatchGetFlightComfort", {
+                const res = await fetch("https://flights.ctrip.com/restapi/soa2/14427/BatchGetFlightComfort", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)
@@ -181,14 +154,14 @@ class OneWayScanner {
                     "mode": "0",
                     "tripType": "OW",
                     "Head": {
-                        "Locale": "en-US",
-                        "Currency": "USD",
-                        "Group": "Trip",
-                        "Source": "ONLINE"
+                        "Locale": "zh-CN",
+                        "Currency": "CNY",
+                        "Group": "Ctrip",
+                        "Source": "PC"
                     }
                 };
 
-                const res = await fetch("https://us.trip.com/restapi/soa2/14427/poiSearch", {
+                const res = await fetch("https://flights.ctrip.com/restapi/soa2/14427/poiSearch", {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
                     body: JSON.stringify(payload)

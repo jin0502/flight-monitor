@@ -1,4 +1,4 @@
-const { initDB } = require('./db');
+const { initDB, getDB } = require('./db');
 const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
