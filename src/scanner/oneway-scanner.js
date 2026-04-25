@@ -1,4 +1,4 @@
-const { getDB } = require('../db');
+const { chromium } = require('playwright');
 const airports = require('../data/airports');
 
 class OneWayScanner {
@@ -6,160 +6,209 @@ class OneWayScanner {
         this.page = page;
     }
 
-    /**
-     * Performs a detailed scrape for a specific date and route.
-     * @param {string} origin 
-     * @param {string} destination 
-     * @param {string} date 
-     * @returns {Promise<Array>} - List of flights found.
-     */
     async scrapeDetailed(origin, destination, date) {
-        if (global.authAlertSent) {
-            throw new Error('AUTH_REQUIRED');
-        }
-
-        const isIntl = !this.isDomestic(origin, destination);
-        const url = isIntl 
-            ? `https://flights.ctrip.com/international/search/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`
-            : `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`;
-        
-        console.log(`[OneWayScanner] Detailed scrape: ${origin} -> ${destination} on ${date} (${isIntl ? 'Intl' : 'Domestic'})`);
+        console.log(`[OneWayScanner] API fetch: ${origin} -> ${destination} on ${date}`);
 
         let apiFlights = null;
+        let retryCount = 0;
+        const maxRetries = 2;
 
-        try {
-            // 1. Setup response capture promise
-            const responsePromise = this.page.waitForResponse(response => {
-                const respUrl = response.url();
-                return (respUrl.includes('/getFlightList') || 
-                        respUrl.includes('/search/pull/') || 
-                        respUrl.includes('/batchSearch') || 
-                        respUrl.includes('/products') || 
-                        respUrl.includes('/FlightIntlAndInlandSearch')) && 
-                        response.status() === 200;
-            }, { timeout: 45000 }).then(async (response) => {
-                try {
-                    const body = await response.json();
-                    
-                    // Check for needUserLogin
-                    if (body.data?.needUserLogin === true || body.needUserLogin === true) {
-                        console.log('[OneWayScanner] Re-authentication required');
-                        const { sendAuthAlert } = require('../alerts');
-                        if (!global.authAlertSent) {
-                            sendAuthAlert().catch(e => console.error('Alert Error:', e.message));
-                            global.authAlertSent = true;
+        while (retryCount < maxRetries && !apiFlights) {
+            try {
+                // Ensure we are on the right domain for cookies
+                if (!this.page.url().includes('trip.com')) {
+                    await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                }
+
+                apiFlights = await this.page.evaluate(async (params) => {
+                    const { origin, destination, date } = params;
+
+                    // Map to city codes (SHA instead of PVG etc) for mainland API
+                    const mapCity = (code) => {
+                        const m = { 'PVG': 'SHA', 'SHA': 'SHA', 'NRT': 'TYO', 'HND': 'TYO', 'KIX': 'OSA', 'NGO': 'OSA', 'ICN': 'SEL', 'GMP': 'SEL' };
+                        return m[code] || code;
+                    };
+
+                    const payload = {
+                        "searchCriteria": {
+                            "tripType": 1,
+                            "journeyNo": 1,
+                            "passengerInfoType": { "adultCount": 1, "childCount": 0, "infantCount": 0 },
+                            "journeyInfoTypes": [{
+                                "journeyNo": 1,
+                                "departDate": date,
+                                "departCode": mapCity(origin),
+                                "arriveCode": mapCity(destination)
+                            }]
+                        },
+                        "Head": {
+                            "Locale": "zh-CN",
+                            "Currency": "CNY",
+                            "Group": "Trip",
+                            "Source": "ONLINE",
+                            "Version": "3"
                         }
-                        throw new Error('AUTH_REQUIRED');
+                    };
+
+                    const res = await fetch("https://m.ctrip.com/restapi/soa2/14022/flightListSearch", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(payload)
+                    });
+                    
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                    const json = await res.json();
+                    
+                    // The 14022 response format might differ slightly from 27015
+                    // Let's return the fltitem list or data
+                    return json.fltitem || json.data?.flightItineraryList || [];
+                }, { origin, destination, date });
+
+                if (apiFlights && apiFlights.length > 0) {
+                    console.log(`[OneWayScanner] SUCCESS! Fetched ${apiFlights.length} flights via internal API.`);
+                } else {
+                    console.log(`[OneWayScanner] Empty results from API.`);
+                    if (retryCount === 0) {
+                        await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
                     }
-
-                    const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
-                    if (list && list.length > 0) {
-                        console.log(`[OneWayScanner] Captured ${list.length} flights.`);
-                        apiFlights = list;
-                    }
-                } catch (e) {
-                    if (e.message === 'AUTH_REQUIRED') throw e;
-                    console.log(`[OneWayScanner] JSON Parse Error: ${e.message}`);
                 }
-            }).catch(e => {
-                if (e.name !== 'TimeoutError' && e.message !== 'AUTH_REQUIRED') {
-                    console.log(`[OneWayScanner] Response Capture Error: ${e.message}`);
-                }
-            });
 
-            // 2. Perform navigation
-            await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-            
-            // 3. Human activity
-            await this.page.mouse.wheel(0, 500);
-            await this.page.waitForTimeout(2000);
-
-            // 4. Wait for response processing
-            await responsePromise;
-
-            // 5. Interaction to trigger activity
-            await this.page.mouse.move(Math.random() * 500, Math.random() * 500);
-            await this.page.waitForTimeout(1000);
-
-        } catch (err) {
-            if (err.message === 'AUTH_REQUIRED') throw err;
-            console.error(`[OneWayScanner] Error during detailed scrape: ${err.message}`);
+            } catch (err) {
+                console.log(`[OneWayScanner] Error: ${err.message}. Retry ${retryCount + 1}`);
+                retryCount++;
+                try { await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch (e) {}
+            }
         }
+
+        // Delay to prevent rate limiting
+        await new Promise(r => setTimeout(r, 2000));
 
         if (!apiFlights || apiFlights.length === 0) {
-            console.log(`[OneWayScanner] Failed to capture detailed flight list. Returning fallback placeholder.`);
-            return [{
-                flightNo: 'UNKNOWN',
-                airline: 'UNKNOWN',
-                departTime: '00:00',
-                arrivalTime: '00:00',
-                price: 0,
-                isFallback: true
-            }];
+            console.log(`[OneWayScanner] Failed to fetch flight list.`);
+            return [];
         }
 
-        return this.processApiFlights(apiFlights, origin, destination, date);
-    }
-
-    processApiFlights(apiFlights, origin, destination, date) {
-        const results = [];
-        const monthKey = date.substring(0, 7);
-
-        apiFlights.forEach(item => {
-            if (!item.priceList || item.priceList.length === 0) return;
-            if (!item.flightSegments || item.flightSegments.length === 0) return;
-
-            const segment = item.flightSegments[0];
-            const flightList = segment.flightList;
+        const results = apiFlights.map(f => {
+            // Ctrip 14022 format handling
+            const segment = f.msegments ? f.msegments[0] : (f.flightSegments ? f.flightSegments[0] : f);
+            const price = f.lp || (f.priceList ? f.priceList[0].price : (f.price || 0));
             
-            // FILTER: Direct flights only
-            if (flightList.length > 1) return;
-
-            const flight = flightList[0];
-            
-            // Handle different price structures
-            const priceInfo = item.priceList[0];
-            const price = priceInfo.adultPrice || priceInfo.price;
-            
-            // Handle different airline/flight number fields
-            const airline = segment.airlineName || segment.airline;
-            const flightNumber = flight.flightNo || flight.flightNumber;
-            const depTimeRaw = flight.departureDateTime || flight.dTime;
-            const depTime = depTimeRaw.includes(' ') ? depTimeRaw.split(' ')[1].substring(0, 5) : depTimeRaw.substring(0, 5);
-            
-            const arrTimeRaw = flight.arrivalDateTime || flight.aTime;
-            const arrTime = arrTimeRaw.includes(' ') ? arrTimeRaw.split(' ')[1].substring(0, 5) : arrTimeRaw.substring(0, 5);
-
-            if (!price || !flightNumber) return;
-
-            results.push({
-                origin,
-                destination,
+            return {
+                origin: origin.toUpperCase(),
+                destination: destination.toUpperCase(),
                 flight_date: date,
-                price,
-                airline,
-                flightNo: flightNumber,
-                departTime: depTime,
-                arrivalTime: arrTime,
-                duration: segment.duration || 'N/A',
-                is_direct: 1,
-                scrape_date: new Date().toISOString(),
-                source: 'ctrip',
-                month_key: monthKey
-            });
+                flightNo: segment.fn || segment.flightNo || 'UNKNOWN',
+                airline: segment.an || segment.airlineName || 'UNKNOWN',
+                departTime: segment.dt || segment.departDateTime || '00:00',
+                arrivalTime: segment.at || segment.arriveDateTime || '00:00',
+                price: price
+            };
         });
 
-        // Sort by price and take top 5
-        results.sort((a, b) => a.price - b.price);
-        return results.slice(0, 5);
+        // ENRICHMENT: Fetch comfort data for the top 5 cheapest flights
+        const top5 = results.sort((a, b) => a.price - b.price).slice(0, 5);
+        if (top5.length > 0) {
+            console.log(`[OneWayScanner] Enriching comfort data for top ${top5.length} flights...`);
+            const comfortData = await this.scrapeComfort(top5);
+            
+            top5.forEach(f => {
+                const c = comfortData.find(cd => cd.flightNo === f.flightNo);
+                if (c) {
+                    f.aircraftType = c.aircraftType;
+                    f.seatPitch = c.seatPitch;
+                    f.hasWifi = c.hasWifi ? 1 : 0;
+                    f.hasEntertainment = c.hasEntertainment ? 1 : 0;
+                    f.hasPower = c.hasPower ? 1 : 0;
+                }
+            });
+        }
+
+        console.log(`[OneWayScanner] Successfully processed ${results.length} flights.`);
+        return results;
     }
 
-    isDomestic(origin, destination) {
-        const o = airports.find(a => a.code === origin);
-        const d = airports.find(a => a.code === destination);
-        const isOriginChina = o?.region === 'China' || origin === 'PVG' || origin === 'SHA';
-        const isDestChina = d?.region === 'China' || destination === 'PVG' || destination === 'SHA';
-        return isOriginChina && isDestChina;
+    async scrapeComfort(flights) {
+        try {
+            const comfortList = await this.page.evaluate(async (flightList) => {
+                const payload = {
+                    "FlightSegmentList": flightList.map(f => ({
+                        "dCity": f.origin,
+                        "aCity": f.destination,
+                        "dDate": f.flight_date,
+                        "flightNo": f.flightNo
+                    })),
+                    "Head": {
+                        "Locale": "en-US",
+                        "Currency": "USD",
+                        "Group": "Trip",
+                        "Source": "ONLINE"
+                    }
+                };
+
+                const res = await fetch("https://us.trip.com/restapi/soa2/14427/BatchGetFlightComfort", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                const json = await res.json();
+                return json.flightComfortList || [];
+            }, flights);
+
+            return comfortList.map(c => ({
+                flightNo: c.flightNo,
+                aircraftType: c.aircraftType,
+                seatPitch: c.seatPitch,
+                hasWifi: c.hasWifi,
+                hasEntertainment: c.hasEntertainment,
+                hasPower: c.hasPower
+            }));
+        } catch (err) {
+            console.error(`[OneWayScanner] Comfort Error: ${err.message}`);
+            return [];
+        }
+    }
+
+    async searchPOI(keyword) {
+        try {
+            const results = await this.page.evaluate(async (key) => {
+                const payload = {
+                    "key": key,
+                    "mode": "0",
+                    "tripType": "OW",
+                    "Head": {
+                        "Locale": "en-US",
+                        "Currency": "USD",
+                        "Group": "Trip",
+                        "Source": "ONLINE"
+                    }
+                };
+
+                const res = await fetch("https://us.trip.com/restapi/soa2/14427/poiSearch", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                
+                const json = await res.json();
+                return json.results || [];
+            }, keyword);
+
+            return results;
+        } catch (err) {
+            console.error(`[OneWayScanner] POI Error: ${err.message}`);
+            return [];
+        }
+    }
+
+    isInternational(origin, destination) {
+        const oCode = origin.toUpperCase();
+        const dCode = destination.toUpperCase();
+        
+        const isOriginChina = oCode === 'PVG' || oCode === 'SHA' || airports.find(a => a.code === oCode)?.region === 'China';
+        const isDestChina = dCode === 'PVG' || dCode === 'SHA' || airports.find(a => a.code === dCode)?.region === 'China';
+        
+        return !isOriginChina || !isDestChina;
     }
 }
 

@@ -109,10 +109,7 @@ class DirectCalendarScanner {
             .map(item => {
                 const ms = parseInt(item.departDate.match(/\d+/)[0]);
                 const d = new Date(ms);
-                return {
-                    date: d.toISOString().split('T')[0],
-                    price: item.price
-                };
+                return d.toISOString().split('T')[0];
             });
             
         return dates;

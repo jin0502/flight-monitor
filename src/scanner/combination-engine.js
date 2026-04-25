@@ -4,9 +4,33 @@ class CombinationEngine {
     constructor() {}
 
     /**
-     * Generates flight combinations from stored one-way flights.
-     * Picks top 5 deals for alerts.
+     * Generates flight combinations from memory arrays.
      */
+    combine(outbounds, inbounds) {
+        const combinations = [];
+        for (const out of outbounds) {
+            const outDate = new Date(out.flight_date);
+            const matches = inbounds.filter(inbound => {
+                const inDate = new Date(inbound.flight_date);
+                const diffTime = inDate - outDate;
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+                return diffDays >= 3 && diffDays <= 9;
+            });
+
+            matches.forEach(inbound => {
+                combinations.push({
+                    outbound_id: out.id || 0, // Placeholder if not yet in DB
+                    return_id: inbound.id || 0,
+                    outbound: out,
+                    inbound: inbound,
+                    total_price: out.price + inbound.price,
+                    gap_days: Math.ceil((new Date(inbound.flight_date) - outDate) / (1000 * 60 * 60 * 24)),
+                    created_at: new Date().toISOString()
+                });
+            });
+        }
+        return combinations.sort((a, b) => a.total_price - b.price);
+    }
     async generateCombinations() {
         console.log('[CombinationEngine] Generating combinations...');
         const db = getDB();

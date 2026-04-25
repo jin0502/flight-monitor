@@ -222,15 +222,28 @@ async function sendTopDealAlerts(deals, db) {
         const deal = deals[i];
         const outName = airportNames[deal.destination_code] || deal.destination_code;
         
+        const formatComfort = (f) => {
+            let info = `✈ ${f.flight_no || f.flightNo} | ${f.airline}`;
+            if (f.aircraft_type || f.aircraftType) info += ` | <b>${f.aircraft_type || f.aircraftType}</b>`;
+            
+            let icons = [];
+            if (f.has_wifi || f.hasWifi) icons.push('📶');
+            if (f.has_entertainment || f.hasEntertainment) icons.push('📺');
+            if (f.has_power || f.hasPower) icons.push('⚡');
+            
+            if (icons.length > 0) info += ` | ${icons.join(' ')}`;
+            return info;
+        };
+
         let msg = `✈️ <b>Best Flight Deal #${i + 1} of ${deals.length}</b>\n\n`;
         
         msg += `🔵 <b>OUTBOUND:</b> Shanghai ✈️ ${outName}\n`;
         msg += `📅 ${deal.out_date} | ⏰ ${deal.out_time}\n`;
-        msg += `✈ ${deal.out_fn} | ${deal.out_airline} | 💰 <b>¥${deal.out_price}</b>\n\n`;
+        msg += `${formatComfort(deal.outbound || deal)} | 💰 <b>¥${deal.out_price}</b>\n\n`;
         
         msg += `🔴 <b>RETURN:</b> ${outName} ✈️ Shanghai\n`;
         msg += `📅 ${deal.ret_date} | ⏰ ${deal.ret_time}\n`;
-        msg += `✈ ${deal.ret_fn} | ${deal.ret_airline} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
+        msg += `${formatComfort(deal.inbound || deal)} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
         
         msg += `💰 <b>TOTAL: ¥${deal.total_price}</b> (${deal.gap_days}-day trip)`;
 

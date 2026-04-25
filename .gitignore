@@ -1,8 +1,15 @@
 node_modules/
 .env
 *.db
+*.sqlite
 *.log
 .DS_Store
 dist/
 coverage/
 data/ctrip_session/
+data/ctrip_session_backup/
+data/cookies.json
+scratch/
+.pma
+.dat
+.pb

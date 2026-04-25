@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS flights (
     depart_time TEXT,
     arrival_time TEXT,
     price REAL,
+    aircraft_type TEXT,
+    seat_pitch TEXT,
+    has_wifi INTEGER DEFAULT 0,
+    has_entertainment INTEGER DEFAULT 0,
+    has_power INTEGER DEFAULT 0,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(origin, dest, date, flight_no)
 );

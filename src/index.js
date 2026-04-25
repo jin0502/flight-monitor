@@ -78,11 +78,15 @@ async function runMonitorLoop() {
         const destArg = args.includes('--dest') ? args[args.indexOf('--dest') + 1] : null;
 
         // Run the orchestrator
-        const topDeals = await runFullScan(originArg, destArg);
+        await runFullScan(originArg, destArg);
+        
+        const { getTopDeals } = require('./scanner/combination-engine');
+        const engine = new (require('./scanner/combination-engine'))();
+        const topDeals = await engine.getTopDeals(5);
         
         if (topDeals && topDeals.length > 0) {
-            console.log(`Found ${topDeals.length} deals. Sending alerts...`);
-            await sendTopDealAlerts(topDeals, db);
+            console.log(`Found ${topDeals.length} new deals. Sending alerts...`);
+            await sendTopDealAlerts(topDeals, getDB());
         } else {
             console.log('No new deals found in this cycle.');
         }

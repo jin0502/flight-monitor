@@ -69,8 +69,12 @@ app.get('/api/combinations', (req, res) => {
     const db = getDB();
     const query = `
         SELECT c.*, 
+               o.origin as out_origin, o.dest as out_dest,
                o.date as out_date, o.price as out_price, o.airline as out_airline, o.flight_no as out_fn, o.depart_time as out_time,
-               r.date as ret_date, r.price as ret_price, r.airline as ret_airline, r.flight_no as ret_fn, r.depart_time as ret_time
+               o.aircraft_type as out_aircraft, o.has_wifi as out_wifi, o.has_entertainment as out_ent, o.has_power as out_power,
+               r.origin as ret_origin, r.dest as ret_dest,
+               r.date as ret_date, r.price as ret_price, r.airline as ret_airline, r.flight_no as ret_fn, r.depart_time as ret_time,
+               r.aircraft_type as ret_aircraft, r.has_wifi as ret_wifi, r.has_entertainment as ret_ent, r.has_power as ret_power
         FROM flight_combinations c
         JOIN flights o ON c.outbound_id = o.id
         JOIN flights r ON c.return_id = r.id

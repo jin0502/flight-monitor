@@ -6,114 +6,108 @@ const OneWayScanner = require('./oneway-scanner');
 const CombinationEngine = require('./combination-engine');
 const airports = require('../data/airports');
 const database = require('../db');
+const { USER_AGENT } = require('../utils/config');
 
 async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     console.log(`[Orchestrator] Starting scan cycle. Origin: ${targetOrigin}, Destination: ${targetDest || 'ALL'}`);
     
-    // Check both ENV and ARGV for headless mode
     let isHeadless = process.env.HEADLESS === 'true' || process.argv.includes('--headless');
-    
-    // Auto-detect Linux without display
     if (process.env.HEADLESS === undefined && process.platform === 'linux' && !process.env.DISPLAY) {
         isHeadless = true;
     }
     
     console.log(`[Orchestrator] Browser Mode: ${isHeadless ? 'HEADLESS' : 'VISIBLE'}`);
 
-    let context;
+    let browser;
     try {
-        const userDataDir = path.join(process.cwd(), 'data/ctrip_session');
-        if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
-
-        context = await chromium.launchPersistentContext(userDataDir, {
+        browser = await chromium.launch({
             headless: isHeadless,
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 720 },
             args: [
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-infobars',
-                '--window-position=0,0',
-                '--ignore-certificate-errors',
-                '--disable-web-security',
-                '--disable-features=IsolateOrigins,site-per-process',
-                '--disable-dev-shm-usage'
+                '--disable-setuid-sandbox'
             ]
         });
-        const page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
 
-        // Initialize Scanners
-        const directScanner = new DirectCalendarScanner();
-        const onewayScanner = new OneWayScanner(page);
-        const combinationEngine = new CombinationEngine();
+        const context = await browser.newContext({
+            userAgent: USER_AGENT,
+            viewport: { width: 1280, height: 720 }
+        });
 
-        // Filter airports if targetDest is specified
-        const finalAirports = targetDest 
-            ? airports.filter(a => a.code.toUpperCase() === targetDest.toUpperCase())
-            : airports;
-
-        // 1. & 2. Scan all airports
-        for (const airport of finalAirports) {
-            console.log(`[Orchestrator] Processing airport: ${airport.name} (${airport.code})`);
-            
-            // --- OUTBOUND ---
-            const outDates = await directScanner.findCheapDates(targetOrigin, airport.code);
-
-            console.log(`[Orchestrator] Starting Phase 2 (Outbound) for ${outDates.length} dates...`);
-            for (const dateStr of outDates) {
-                const details = await onewayScanner.scrapeDetailed(targetOrigin, airport.code, dateStr);
-                for (const flight of details) {
-                    await database.saveFlight({
-                        origin: targetOrigin,
-                        dest: airport.code,
-                        date: dateStr,
-                        flight_no: flight.flightNo,
-                        airline: flight.airline,
-                        depart_time: flight.departTime,
-                        arrival_time: flight.arrivalTime,
-                        price: flight.price
-                    });
-                }
-                await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);
-            }
-
-            // --- INBOUND ---
-            const inDates = await directScanner.findCheapDates(airport.code, targetOrigin);
-
-            console.log(`[Orchestrator] Starting Phase 2 (Inbound) for ${inDates.length} dates...`);
-            for (const dateStr of inDates) {
-                const details = await onewayScanner.scrapeDetailed(airport.code, targetOrigin, dateStr);
-                for (const flight of details) {
-                    await database.saveFlight({
-                        origin: airport.code,
-                        dest: targetOrigin,
-                        date: dateStr,
-                        flight_no: flight.flightNo,
-                        airline: flight.airline,
-                        depart_time: flight.departTime,
-                        arrival_time: flight.arrivalTime,
-                        price: flight.price
-                    });
-                }
-                await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);
-            }
+        // LOAD COOKIES MANUALLY FROM JSON
+        const cookiesPath = path.join(process.cwd(), 'data/cookies.json');
+        if (fs.existsSync(cookiesPath)) {
+            const cookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
+            await context.addCookies(cookies);
+            console.log(`[Orchestrator] Manually loaded ${cookies.length} cookies from JSON.`);
+        } else {
+            console.log('[Orchestrator] WARNING: data/cookies.json not found. Scanning as guest.');
         }
 
-        // 3. Generate Combinations
-        const topDeals = await combinationEngine.generateCombinations();
-        console.log(`[Orchestrator] Scan complete. Found ${topDeals.length} top deals to alert.`);
-        return topDeals;
+        const page = await context.newPage();
+        
+        if (targetDest) {
+            const airport = airports.find(a => a.code === targetDest);
+            if (airport) {
+                await processAirport(page, airport, targetOrigin);
+            }
+        } else {
+            for (const airport of airports) {
+                if (airport.code === targetOrigin) continue;
+                await processAirport(page, airport, targetOrigin);
+            }
+        }
 
     } catch (err) {
-        if (err.message === 'AUTH_REQUIRED') {
-            console.error('[Orchestrator] Scan aborted: Re-authentication required.');
-        } else {
-            console.error('[Orchestrator] Critical error during scan:', err);
-        }
-        return [];
+        console.error(`[Orchestrator] Fatal Error: ${err.message}`);
     } finally {
-        if (context) await context.close();
+        if (browser) await browser.close();
+    }
+}
+
+async function processAirport(page, airport, targetOrigin) {
+    console.log(`[Orchestrator] Processing airport: ${airport.name} (${airport.code})`);
+    
+    const calendarScanner = new DirectCalendarScanner();
+    const oneWayScanner = new OneWayScanner(page);
+    const engine = new CombinationEngine();
+
+    try {
+        const outboundDates = await calendarScanner.findCheapDates(targetOrigin, airport.code);
+        const inboundDates = await calendarScanner.findCheapDates(airport.code, targetOrigin);
+
+        // Phase 2: Detailed Scrapes
+        const allOutbound = [];
+        console.log(`[Orchestrator] Starting Phase 2 (Outbound) for ${outboundDates.length} dates...`);
+        for (const date of outboundDates) {
+            const flights = await oneWayScanner.scrapeDetailed(targetOrigin, airport.code, date);
+            for (const f of flights) {
+                await database.saveFlight(f).catch(e => console.error(`[Orchestrator] Error saving flight: ${e.message}`));
+            }
+            allOutbound.push(...flights);
+        }
+
+        const allInbound = [];
+        console.log(`[Orchestrator] Starting Phase 2 (Inbound) for ${inboundDates.length} dates...`);
+        for (const date of inboundDates) {
+            const flights = await oneWayScanner.scrapeDetailed(airport.code, targetOrigin, date);
+            for (const f of flights) {
+                await database.saveFlight(f).catch(e => console.error(`[Orchestrator] Error saving flight: ${e.message}`));
+            }
+            allInbound.push(...flights);
+        }
+
+        if (allOutbound.length > 0 && allInbound.length > 0) {
+            const combinations = engine.combine(allOutbound, allInbound);
+            console.log(`[Orchestrator] Found ${combinations.length} potential combinations.`);
+            await database.saveCombinations(combinations);
+        }
+    } catch (err) {
+        if (err.message === 'AUTH_REQUIRED') {
+            console.log(`[Orchestrator] Scan aborted: Re-authentication required.`);
+            throw err; 
+        }
+        console.error(`[Orchestrator] Error processing ${airport.code}: ${err.message}`);
     }
 }
 

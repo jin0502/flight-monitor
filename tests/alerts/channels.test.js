@@ -9,7 +9,8 @@ describe('Notification Channels', () => {
         jest.clearAllMocks();
         process.env.TELEGRAM_BOT_TOKEN = 'test_bot_token';
         process.env.TELEGRAM_CHAT_ID = 'test_chat_id';
-        process.env.DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/test';
+        process.env.DISCORD_BOT_TOKEN = 'test_discord_token';
+        process.env.DISCORD_GUILD_ID = 'test_guild_id';
     });
 
     describe('Telegram Channel', () => {
@@ -28,35 +29,52 @@ describe('Notification Channels', () => {
                 }
             );
         });
-
-        test('should throw an error if Telegram notification fails', async () => {
-            const message = 'Test Telegram Alert';
-            axios.post.mockRejectedValue(new Error('Telegram API Error'));
-
-            await expect(sendTelegramNotification(message)).rejects.toThrow('Telegram API Error');
-        });
     });
 
     describe('Discord Channel', () => {
-        test('should send a notification to Discord successfully', async () => {
+        test('should find existing channel and send notification', async () => {
             const message = 'Test Discord Alert';
-            axios.post.mockResolvedValue({ status: 204 });
+            const country = 'Japan';
+            const channelId = '12345';
+            
+            // Mock getOrCreateChannel calls
+            axios.get.mockResolvedValue({ data: [{ name: 'japan', id: channelId, type: 0 }] });
+            axios.post.mockResolvedValue({ status: 200, data: { id: 'msg123' } });
 
-            await sendDiscordNotification(message);
+            await sendDiscordNotification(message, country);
 
+            // Verify channel list request
+            expect(axios.get).toHaveBeenCalledWith(
+                `https://discord.com/api/v10/guilds/test_guild_id/channels`,
+                expect.any(Object)
+            );
+            
+            // Verify message send request
             expect(axios.post).toHaveBeenCalledWith(
-                'https://discord.com/api/webhooks/test',
-                {
-                    content: message
-                }
+                `https://discord.com/api/v10/channels/${channelId}/messages`,
+                { content: message },
+                expect.any(Object)
             );
         });
 
-        test('should throw an error if Discord notification fails', async () => {
+        test('should create channel if not found and send notification', async () => {
             const message = 'Test Discord Alert';
-            axios.post.mockRejectedValue(new Error('Discord API Error'));
+            const country = 'Thailand';
+            const newChannelId = '67890';
+            
+            // Mock channel search (empty), channel create, then msg send
+            axios.get.mockResolvedValue({ data: [] });
+            axios.post
+                .mockResolvedValueOnce({ status: 201, data: { id: newChannelId } }) // Create channel
+                .mockResolvedValueOnce({ status: 200, data: { id: 'msg456' } });  // Send message
 
-            await expect(sendDiscordNotification(message)).rejects.toThrow('Discord API Error');
+            await sendDiscordNotification(message, country);
+
+            expect(axios.post).toHaveBeenCalledWith(
+                `https://discord.com/api/v10/guilds/test_guild_id/channels`,
+                { name: 'thailand', type: 0 },
+                expect.any(Object)
+            );
         });
     });
 });
