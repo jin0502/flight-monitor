@@ -106,7 +106,11 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
         return topDeals;
 
     } catch (err) {
-        console.error('[Orchestrator] Critical error during scan:', err);
+        if (err.message === 'AUTH_REQUIRED') {
+            console.error('[Orchestrator] Scan aborted: Re-authentication required.');
+        } else {
+            console.error('[Orchestrator] Critical error during scan:', err);
+        }
         return [];
     } finally {
         if (context) await context.close();

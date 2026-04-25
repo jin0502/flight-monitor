@@ -14,6 +14,9 @@ class OneWayScanner {
      * @returns {Promise<Array>} - List of flights found.
      */
     async scrapeDetailed(origin, destination, date) {
+        if (global.authAlertSent) {
+            throw new Error('AUTH_REQUIRED');
+        }
         // Enable request interception
         await this.page.route('**/*', route => {
             const url = route.request().url();
@@ -48,11 +51,11 @@ class OneWayScanner {
                         if (body.data?.needUserLogin === true || body.needUserLogin === true) {
                             console.log('[OneWayScanner] Re-authentication required (needUserLogin: true)');
                             const { sendAuthAlert } = require('../alerts');
-                            // Use a simple global flag to avoid spamming alerts in one cycle
                             if (!global.authAlertSent) {
                                 sendAuthAlert().catch(e => console.error('Alert Error:', e.message));
                                 global.authAlertSent = true;
                             }
+                            throw new Error('AUTH_REQUIRED');
                         }
 
                         const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
