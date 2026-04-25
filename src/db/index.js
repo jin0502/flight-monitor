@@ -11,7 +11,7 @@ let db;
  */
 function initDB(dbPath) {
     return new Promise((resolve, reject) => {
-        const targetPath = dbPath || process.env.DB_PATH || path.join(__dirname, '../../database.sqlite');
+        const targetPath = path.resolve(dbPath || process.env.DB_PATH || path.join(__dirname, '../../database.sqlite'));
         
         db = new sqlite3.Database(targetPath, (err) => {
             if (err) {
@@ -45,7 +45,48 @@ function getDB() {
     return db;
 }
 
+function saveFlight(flight) {
+    return new Promise((resolve, reject) => {
+        const query = `INSERT OR REPLACE INTO flights 
+            (origin, dest, date, flight_no, airline, depart_time, arrival_time, price, updated_at) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`;
+        db.run(query, [
+            flight.origin, flight.dest, flight.date, 
+            flight.flight_no, flight.airline, 
+            flight.depart_time, flight.arrival_time, flight.price
+        ], function(err) {
+            if (err) reject(err);
+            else resolve(this.lastID);
+        });
+    });
+}
+
+function saveRoutePrice(data) {
+    return new Promise((resolve, reject) => {
+        const query = `INSERT OR REPLACE INTO route_prices 
+            (origin, dest, date, price, updated_at) 
+            VALUES (?, ?, ?, ?, datetime('now'))`;
+        db.run(query, [data.origin, data.dest, data.date, data.price], function(err) {
+            if (err) reject(err);
+            else resolve(this.lastID);
+        });
+    });
+}
+
+function getLatestPrices(origin, dest) {
+    return new Promise((resolve, reject) => {
+        const query = `SELECT * FROM route_prices WHERE origin = ? AND dest = ? AND date >= date('now') ORDER BY date ASC`;
+        db.all(query, [origin, dest], (err, rows) => {
+            if (err) reject(err);
+            else resolve(rows);
+        });
+    });
+}
+
 module.exports = {
     initDB,
-    getDB
+    getDB,
+    saveFlight,
+    saveRoutePrice,
+    getLatestPrices
 };

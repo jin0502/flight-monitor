@@ -1,12 +1,7 @@
-const { initDB, getDB } = require('./db');
-const GoogleFlightsScraper = require('./scraper/providers/google-flights');
-const CtripScraper = require('./scraper/providers/ctrip');
-const TripDotComScraper = require('./scraper/providers/trip-dot-com');
+const { initDB } = require('./db');
 const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
-const countryAirports = require('./data/country-airports');
-const { chromium } = require('playwright');
 
 dotenv.config();
 

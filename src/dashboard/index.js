@@ -2,7 +2,6 @@ const express = require('express');
 const path = require('path');
 const { getDB, initDB } = require('../db');
 const dotenv = require('dotenv');
-const countryAirports = require('../data/country-airports');
 
 dotenv.config();
 
@@ -56,7 +55,7 @@ app.use(express.static(path.join(__dirname, 'public')));
  */
 app.get('/api/oneway', (req, res) => {
     const db = getDB();
-    db.all('SELECT * FROM oneway_flights ORDER BY flight_date ASC, price ASC', [], (err, rows) => {
+    db.all('SELECT * FROM flights ORDER BY updated_at DESC', [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(rows);
     });
@@ -70,12 +69,13 @@ app.get('/api/combinations', (req, res) => {
     const db = getDB();
     const query = `
         SELECT c.*, 
-               o.flight_date as out_date, o.price as out_price, o.airline as out_airline, o.flight_number as out_fn, o.departure_time as out_time,
-               r.flight_date as ret_date, r.price as ret_price, r.airline as ret_airline, r.flight_number as ret_fn, r.departure_time as ret_time
+               o.date as out_date, o.price as out_price, o.airline as out_airline, o.flight_no as out_fn, o.depart_time as out_time,
+               r.date as ret_date, r.price as ret_price, r.airline as ret_airline, r.flight_no as ret_fn, r.depart_time as ret_time
         FROM flight_combinations c
-        JOIN oneway_flights o ON c.outbound_flight_id = o.id
-        JOIN oneway_flights r ON c.return_flight_id = r.id
+        JOIN flights o ON c.outbound_id = o.id
+        JOIN flights r ON c.return_id = r.id
         ORDER BY c.total_price ASC
+        LIMIT 50
     `;
     db.all(query, [], (err, rows) => {
         if (err) return res.status(500).json({ error: err.message });

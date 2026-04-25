@@ -1,63 +1,101 @@
+const fs = require('fs');
+const path = require('path');
 const { chromium } = require('playwright');
-const CalendarScanner = require('./calendar-scanner');
+const DirectCalendarScanner = require('./direct-calendar-scanner');
 const OneWayScanner = require('./oneway-scanner');
 const CombinationEngine = require('./combination-engine');
 const airports = require('../data/airports');
+const database = require('../db');
 
 async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     console.log(`[Orchestrator] Starting scan cycle. Origin: ${targetOrigin}, Destination: ${targetDest || 'ALL'}`);
     
-    let browser;
+    const isHeadless = process.argv.includes('--headless');
+    console.log(`[Orchestrator] Browser Mode: ${isHeadless ? 'HEADLESS' : 'VISIBLE'}`);
+
+    let context;
     try {
-        browser = await chromium.launch({ 
-            headless: true,
+        const userDataDir = path.join(process.cwd(), 'data/ctrip_session');
+        if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
+
+        context = await chromium.launchPersistentContext(userDataDir, {
+            headless: isHeadless,
+            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+            viewport: { width: 1280, height: 720 },
             args: [
-                '--no-sandbox', 
+                '--disable-blink-features=AutomationControlled',
+                '--no-sandbox',
                 '--disable-setuid-sandbox',
-                '--disable-blink-features=AutomationControlled'
+                '--disable-infobars',
+                '--window-position=0,0',
+                '--ignore-certifcate-errors',
+                '--ignore-certifcate-errors-spki-list',
+                '--disable-dev-shm-usage'
             ]
         });
-        const context = await browser.newContext({
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-            viewport: { width: 1280, height: 720 }
-        });
-        const page = await context.newPage();
+        const page = context.pages().length > 0 ? context.pages()[0] : await context.newPage();
 
-        const calendarScanner = new CalendarScanner(page);
+        // Initialize Scanners
+        const directScanner = new DirectCalendarScanner();
         const onewayScanner = new OneWayScanner(page);
         const combinationEngine = new CombinationEngine();
 
         // Filter airports if targetDest is specified
-        const scanAirports = targetDest 
+        const finalAirports = targetDest 
             ? airports.filter(a => a.code.toUpperCase() === targetDest.toUpperCase())
             : airports;
 
-        if (scanAirports.length === 0 && targetDest) {
-            console.warn(`[Orchestrator] Target destination ${targetDest} not found in airport list. Scanning all.`);
-        }
-
-        const finalAirports = scanAirports.length > 0 ? scanAirports : airports;
-
-        // 1. & 2. Scrutinize all airports (Outbound and Return)
+        // 1. & 2. Scan all airports
         for (const airport of finalAirports) {
             console.log(`[Orchestrator] Processing airport: ${airport.name} (${airport.code})`);
             
-            // Outbound: Origin -> Destination
-            const outDates = await calendarScanner.findCheapDates(targetOrigin, airport.code);
-            for (const date of outDates) {
-                await onewayScanner.scrapeDetailed(targetOrigin, airport.code, date);
+            // --- OUTBOUND ---
+            let outDates = await directScanner.findCheapDates(targetOrigin, airport.code);
+            if (!outDates) outDates = [];
+
+            console.log(`[Orchestrator] Starting Phase 2 (Outbound) for ${outDates.length} dates...`);
+            for (const priceItem of outDates) {
+                const details = await onewayScanner.scrapeDetailed(targetOrigin, airport.code, priceItem.date);
+                for (const flight of details) {
+                    await database.saveFlight({
+                        origin: targetOrigin,
+                        dest: airport.code,
+                        date: priceItem.date,
+                        flight_no: flight.flightNo,
+                        airline: flight.airline,
+                        depart_time: flight.departTime,
+                        arrival_time: flight.arrivalTime,
+                        price: flight.isFallback ? priceItem.price : flight.price
+                    });
+                }
+                await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);
             }
 
-            // Inbound: Destination -> Origin
-            const inDates = await calendarScanner.findCheapDates(airport.code, targetOrigin);
-            for (const date of inDates) {
-                await onewayScanner.scrapeDetailed(airport.code, targetOrigin, date);
+            // --- INBOUND ---
+            let inDates = await directScanner.findCheapDates(airport.code, targetOrigin);
+            if (!inDates) inDates = [];
+
+            console.log(`[Orchestrator] Starting Phase 2 (Inbound) for ${inDates.length} dates...`);
+            for (const priceItem of inDates) {
+                const details = await onewayScanner.scrapeDetailed(airport.code, targetOrigin, priceItem.date);
+                for (const flight of details) {
+                    await database.saveFlight({
+                        origin: airport.code,
+                        dest: targetOrigin,
+                        date: priceItem.date,
+                        flight_no: flight.flightNo,
+                        airline: flight.airline,
+                        depart_time: flight.departTime,
+                        arrival_time: flight.arrivalTime,
+                        price: flight.isFallback ? priceItem.price : flight.price
+                    });
+                }
+                await page.waitForTimeout(Math.floor(Math.random() * 3000) + 2000);
             }
         }
 
         // 3. Generate Combinations
         const topDeals = await combinationEngine.generateCombinations();
-        
         console.log(`[Orchestrator] Scan complete. Found ${topDeals.length} top deals to alert.`);
         return topDeals;
 
@@ -65,7 +103,7 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
         console.error('[Orchestrator] Critical error during scan:', err);
         return [];
     } finally {
-        if (browser) await browser.close();
+        if (context) await context.close();
     }
 }
 

@@ -1,4 +1,5 @@
 const { getDB } = require('../db');
+const airports = require('../data/airports');
 
 class OneWayScanner {
     constructor(page) {
@@ -13,58 +14,100 @@ class OneWayScanner {
      * @returns {Promise<Array>} - List of flights found.
      */
     async scrapeDetailed(origin, destination, date) {
-        const url = `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`;
-        console.log(`[OneWayScanner] Detailed scrape: ${origin} -> ${destination} on ${date}`);
+        // Enable request interception
+        await this.page.route('**/*', route => {
+            const url = route.request().url();
+            if (url.includes('captcha') || url.includes('sec.ctrip.com') || url.includes('tracking')) {
+                return route.abort();
+            }
+            route.continue();
+        });
+
+        const isIntl = !this.isDomestic(origin, destination);
+        const url = isIntl 
+            ? `https://flights.ctrip.com/international/search/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`
+            : `https://flights.ctrip.com/online/list/oneway-${origin.toLowerCase()}-${destination.toLowerCase()}?depdate=${date}`;
+        
+        console.log(`[OneWayScanner] Detailed scrape: ${origin} -> ${destination} on ${date} (${isIntl ? 'Intl' : 'Domestic'})`);
+        console.log(`[OneWayScanner] URL: ${url}`);
 
         let apiFlights = null;
+        let apiHandler;
         
-        const apiHandler = async (response) => {
-            const respUrl = response.url();
-            const isMatch = respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/') || respUrl.includes('/batchSearch');
-            
-            if (isMatch && !apiFlights) {
-                try {
-                    const body = await response.json();
-                    const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
-                    
-                    if (list && list.length > 0) {
-                        console.log(`[OneWayScanner] Captured flights from: ${respUrl.split('?')[0]} (${list.length} flights)`);
-                        apiFlights = list;
-                    } else {
-                        // International batchSearch is a handshake, don't log "empty" unless it's domestic or pull
-                        const isIntlBatch = respUrl.includes('/international/') && respUrl.includes('/batchSearch');
-                        if (!isIntlBatch) {
-                            console.log(`[OneWayScanner] Intercepted empty list from: ${respUrl.split('?')[0]}`);
-                        }
-                    }
-                } catch (e) {
-                    // Ignore parsing errors
-                }
-            }
-        };
-
-        this.page.on('response', apiHandler);
-
-        const randomDelay = Math.floor(Math.random() * 2000) + 1000;
-        await this.page.waitForTimeout(randomDelay);
-
         try {
+            apiHandler = async (response) => {
+                const respUrl = response.url();
+                const isMatch = respUrl.includes('/getFlightList') || respUrl.includes('/search/pull/') || respUrl.includes('/batchSearch') || respUrl.includes('/products') || respUrl.includes('/FlightIntlAndInlandSearch');
+                
+                if (isMatch && !apiFlights) {
+                    console.log(`[OneWayScanner] Intercepted URL: ${respUrl.split('?')[0]}`);
+                    try {
+                        const body = await response.json();
+                        const list = body.flightItineraryList || body.data?.flightItineraryList || body.result?.flightItineraryList || body.data?.itineraryList;
+                        
+                        if (list && list.length > 0) {
+                            console.log(`[OneWayScanner] Captured ${list.length} flights.`);
+                            apiFlights = list;
+                        } else {
+                            console.log(`[OneWayScanner] Match found but list is empty. Keys: ${Object.keys(body).join(', ')}`);
+                            if (body.data) {
+                                console.log(`[OneWayScanner] Data keys: ${Object.keys(body.data).join(', ')}`);
+                            }
+                        }
+                    } catch (e) {
+                        console.log(`[OneWayScanner] JSON Parse Error: ${e.message}`);
+                    }
+                }
+            };
+
+            this.page.on('response', apiHandler);
+
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
-            await this.page.waitForTimeout(10000); // Wait for API and rendering
+            
+            // Try to close any login/promo dialogs that might block the page
+            try {
+                // Wait a bit for popups to appear
+                await this.page.waitForTimeout(2000);
+                const selectors = [
+                    '.pop-close', '.modal-close', '.close-icon', 
+                    '.login-pop-close', '.pc_login_close',
+                    '.ant-modal-close'
+                ];
+                for (const selector of selectors) {
+                    const btn = await this.page.$(selector);
+                    if (btn && await btn.isVisible()) {
+                        await btn.click();
+                        console.log(`[OneWayScanner] Closed popup: ${selector}`);
+                    }
+                }
+            } catch (e) {}
+
+            // Simulate human behavior
+            await this.page.mouse.move(Math.random() * 500, Math.random() * 500);
+            await this.page.evaluate(() => window.scrollBy(0, 300));
+            await this.page.waitForTimeout(1000);
+            await this.page.evaluate(() => window.scrollBy(0, -300));
+
+            await this.page.waitForTimeout(7000); // Wait for API and rendering
         } catch (err) {
             console.error(`[OneWayScanner] Error during detailed scrape: ${err.message}`);
         } finally {
-            this.page.removeListener('response', apiHandler);
+            if (apiHandler) this.page.removeListener('response', apiHandler);
         }
 
         if (!apiFlights || apiFlights.length === 0) {
-            console.warn(`[OneWayScanner] No detailed flights found for ${origin} -> ${destination} on ${date}`);
-            return [];
+            console.log(`[OneWayScanner] Failed to capture detailed flight list. Returning fallback placeholder.`);
+            return [{
+                flightNo: 'UNKNOWN',
+                airline: 'UNKNOWN',
+                departTime: '00:00',
+                arrivalTime: '00:00',
+                price: 0, // Orchestrator should handle this by using calendar price
+                isFallback: true
+            }];
         }
 
         const processed = this.processApiFlights(apiFlights, origin, destination, date);
-        await this.saveToDB(processed);
-        
         return processed;
     }
 
@@ -94,6 +137,9 @@ class OneWayScanner {
             const depTimeRaw = flight.departureDateTime || flight.dTime;
             const depTime = depTimeRaw.includes(' ') ? depTimeRaw.split(' ')[1].substring(0, 5) : depTimeRaw.substring(0, 5);
             
+            const arrTimeRaw = flight.arrivalDateTime || flight.aTime;
+            const arrTime = arrTimeRaw.includes(' ') ? arrTimeRaw.split(' ')[1].substring(0, 5) : arrTimeRaw.substring(0, 5);
+
             if (!price || !flightNumber) return;
 
             results.push({
@@ -102,8 +148,9 @@ class OneWayScanner {
                 flight_date: date,
                 price,
                 airline,
-                flight_number: flightNumber,
-                departure_time: depTime,
+                flightNo: flightNumber,
+                departTime: depTime,
+                arrivalTime: arrTime,
                 duration: segment.duration || 'N/A',
                 is_direct: 1,
                 scrape_date: new Date().toISOString(),
@@ -112,37 +159,17 @@ class OneWayScanner {
             });
         });
 
-        return results;
+        // Sort by price and take top 5 (User suggestion: cheapest are usually on top anyway)
+        results.sort((a, b) => a.price - b.price);
+        return results.slice(0, 5);
     }
 
-    async saveToDB(flights) {
-        const db = getDB();
-        const stmt = db.prepare(`
-            INSERT INTO oneway_flights 
-            (origin, destination, flight_date, price, airline, flight_number, departure_time, duration, is_direct, scrape_date, source, month_key)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(origin, destination, flight_date, flight_number) DO UPDATE SET
-            price = excluded.price,
-            scrape_date = excluded.scrape_date,
-            departure_time = excluded.departure_time,
-            duration = excluded.duration
-        `);
-
-        for (const f of flights) {
-            await new Promise((resolve, reject) => {
-                stmt.run(
-                    f.origin, f.destination, f.flight_date, f.price, f.airline, 
-                    f.flight_number, f.departure_time, f.duration, f.is_direct, 
-                    f.scrape_date, f.source, f.month_key,
-                    (err) => {
-                        if (err) reject(err);
-                        else resolve();
-                    }
-                );
-            });
-        }
-        stmt.finalize();
-        console.log(`[OneWayScanner] Saved/Updated ${flights.length} flights in DB.`);
+    isDomestic(origin, destination) {
+        const o = airports.find(a => a.code === origin);
+        const d = airports.find(a => a.code === destination);
+        const isOriginChina = o?.region === 'China' || origin === 'PVG' || origin === 'SHA';
+        const isDestChina = d?.region === 'China' || destination === 'PVG' || destination === 'SHA';
+        return isOriginChina && isDestChina;
     }
 }
 
