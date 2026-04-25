@@ -15,9 +15,10 @@ class OneWayScanner {
 
         while (retryCount < maxRetries && !apiFlights) {
             try {
-                // Ensure we are on the right domain for cookies
-                if (!this.page.url().includes('trip.com')) {
-                    await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                // Ensure we are on the right domain for cookies (ctrip.com for 14022 API)
+                if (!this.page.url().includes('ctrip.com')) {
+                    console.log(`[OneWayScanner] Navigating to ctrip.com for session context...`);
+                    await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
                 }
 
                 apiFlights = await this.page.evaluate(async (params) => {
@@ -59,8 +60,11 @@ class OneWayScanner {
                     if (!res.ok) throw new Error(`HTTP ${res.status}`);
                     const json = await res.json();
                     
-                    // The 14022 response format might differ slightly from 27015
-                    // Let's return the fltitem list or data
+                    if (!json.fltitem || json.fltitem.length === 0) {
+                        console.log(`[OneWayScanner] API returned empty fltitem. Response Status: ${JSON.stringify(json.ResponseStatus || {})}`);
+                        if (json.rltmsg) console.log(`[OneWayScanner] Result Msg: ${json.rltmsg}`);
+                    }
+
                     return json.fltitem || json.data?.flightItineraryList || [];
                 }, { origin, destination, date });
 
@@ -69,14 +73,14 @@ class OneWayScanner {
                 } else {
                     console.log(`[OneWayScanner] Empty results from API.`);
                     if (retryCount === 0) {
-                        await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+                        await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
                     }
                 }
 
             } catch (err) {
                 console.log(`[OneWayScanner] Error: ${err.message}. Retry ${retryCount + 1}`);
                 retryCount++;
-                try { await this.page.goto('https://us.trip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch (e) {}
+                try { await this.page.goto('https://flights.ctrip.com/', { waitUntil: 'domcontentloaded', timeout: 30000 }); } catch (e) {}
             }
         }
 

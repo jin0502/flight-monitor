@@ -18,30 +18,45 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     
     console.log(`[Orchestrator] Browser Mode: ${isHeadless ? 'HEADLESS' : 'VISIBLE'}`);
 
+    const userDataDir = path.resolve(__dirname, '../../data/ctrip_session');
+    const hasPersistentSession = fs.existsSync(userDataDir);
+
     let browser;
+    let context;
     try {
-        browser = await chromium.launch({
+        const launchOptions = {
             headless: isHeadless,
             args: [
                 '--disable-blink-features=AutomationControlled',
                 '--no-sandbox',
                 '--disable-setuid-sandbox'
             ]
-        });
+        };
 
-        const context = await browser.newContext({
-            userAgent: USER_AGENT,
-            viewport: { width: 1280, height: 720 }
-        });
-
-        // LOAD COOKIES MANUALLY FROM JSON
-        const cookiesPath = path.join(process.cwd(), 'data/cookies.json');
-        if (fs.existsSync(cookiesPath)) {
-            const cookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
-            await context.addCookies(cookies);
-            console.log(`[Orchestrator] Manually loaded ${cookies.length} cookies from JSON.`);
+        if (hasPersistentSession) {
+            console.log(`[Orchestrator] Using persistent session from ${userDataDir}`);
+            context = await chromium.launchPersistentContext(userDataDir, {
+                ...launchOptions,
+                userAgent: USER_AGENT,
+                viewport: { width: 1280, height: 720 }
+            });
         } else {
-            console.log('[Orchestrator] WARNING: data/cookies.json not found. Scanning as guest.');
+            console.log(`[Orchestrator] No persistent session found. Launching fresh browser.`);
+            browser = await chromium.launch(launchOptions);
+            context = await browser.newContext({
+                userAgent: USER_AGENT,
+                viewport: { width: 1280, height: 720 }
+            });
+
+            // FALLBACK: LOAD COOKIES MANUALLY FROM JSON
+            const cookiesPath = path.resolve(__dirname, '../../data/cookies.json');
+            if (fs.existsSync(cookiesPath)) {
+                const cookies = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
+                await context.addCookies(cookies);
+                console.log(`[Orchestrator] Successfully loaded ${cookies.length} cookies from ${cookiesPath}`);
+            } else {
+                console.log(`[Orchestrator] WARNING: No cookies.json found at ${cookiesPath}. Scanning as guest.`);
+            }
         }
 
         const page = await context.newPage();
@@ -61,7 +76,11 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     } catch (err) {
         console.error(`[Orchestrator] Fatal Error: ${err.message}`);
     } finally {
-        if (browser) await browser.close();
+        if (browser) {
+            await browser.close();
+        } else if (context) {
+            await context.close();
+        }
     }
 }
 

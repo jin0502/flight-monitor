@@ -3,16 +3,30 @@ const path = require('path');
 const fs = require('fs');
 const { USER_AGENT } = require('../utils/config');
 
-async function remoteLogin() {
-    console.log('--- REMOTE LOGIN TOOL (JSON PERSISTENCE) ---');
+/**
+ * HEADLESS REMOTE LOGIN TOOL
+ * Designed for VPS environments without X11.
+ * Works by:
+ * 1. Opening the login page headlessly.
+ * 2. Taking periodic screenshots of the page.
+ * 3. Letting the user type text or click by coordinates if needed (advanced).
+ * 4. Most importantly, it waits for the user to login via SMS/QR code (if visible in screenshot).
+ */
+async function headlessLogin() {
+    console.log('--- HEADLESS REMOTE LOGIN TOOL ---');
     const userDataDir = path.join(process.cwd(), 'data/ctrip_session');
     const cookiesPath = path.join(process.cwd(), 'data/cookies.json');
+    const screenshotPath = path.join(process.cwd(), 'login-preview.png');
     
     if (!fs.existsSync(userDataDir)) fs.mkdirSync(userDataDir, { recursive: true });
 
+    const isHeadless = process.env.HEADLESS === 'true' || !process.env.DISPLAY;
+    console.log(`[1/3] Launching browser (Headless: ${isHeadless})...`);
+
     const context = await chromium.launchPersistentContext(userDataDir, {
-        headless: false, 
+        headless: isHeadless, 
         userAgent: USER_AGENT,
+        viewport: { width: 1280, height: 800 },
         args: [
             '--no-sandbox',
             '--disable-setuid-sandbox',
@@ -21,35 +35,60 @@ async function remoteLogin() {
     });
 
     const page = await context.newPage();
-    await page.goto('https://passport.ctrip.com/user/login');
-
-    console.log('\n--- ACTION REQUIRED ---');
-    console.log('1. Complete the login.');
-    console.log('2. Type "save" here and press ENTER.');
+    console.log('[2/3] Navigating to Ctrip Login...');
+    await page.goto('https://passport.ctrip.com/user/login', { waitUntil: 'networkidle' });
 
     const readline = require('readline').createInterface({
         input: process.stdin,
         output: process.stdout
     });
 
-    readline.question('\nType "save" to finish: ', async () => {
-        console.log('Capturing and saving cookies to JSON...');
+    const loop = async () => {
+        await page.screenshot({ path: screenshotPath });
+        console.log(`\n📸 Screenshot updated: ${screenshotPath}`);
+        console.log('Current URL:', page.url());
         
-        // Go to homepage to ensure all cookies are set
-        try {
-            await page.goto('https://www.ctrip.com', { waitUntil: 'domcontentloaded' });
-        } catch (e) {}
+        console.log('\nCommands:');
+        console.log('  s            - Refresh screenshot');
+        console.log('  t <text>     - Type text into active element');
+        console.log('  k <key>      - Press key (e.g. "Enter", "Tab")');
+        console.log('  c <x> <y>    - Click at coordinates');
+        console.log('  save         - Save session and exit');
+        console.log('  quit         - Exit without saving');
 
-        const cookies = await context.cookies();
-        const hasTicket = cookies.some(c => c.name.toLowerCase().includes('ticket'));
-        
-        fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
-        console.log(`\nSUCCESS: ${cookies.length} cookies saved to ${cookiesPath}`);
-        console.log(`Auth Token (cticket) Found: ${hasTicket ? 'YES ✅' : 'NO ❌'}`);
+        readline.question('\nCommand: ', async (input) => {
+            const [cmd, ...args] = input.split(' ');
 
-        await context.close();
-        process.exit(0);
-    });
+            try {
+                if (cmd === 's') {
+                    // Just loop
+                } else if (cmd === 't') {
+                    await page.keyboard.insertText(args.join(' '));
+                } else if (cmd === 'k') {
+                    await page.keyboard.press(args[0]);
+                } else if (cmd === 'c') {
+                    await page.mouse.click(parseInt(args[0]), parseInt(args[1]));
+                } else if (cmd === 'save') {
+                    console.log('Capturing cookies...');
+                    await page.goto('https://www.ctrip.com', { waitUntil: 'domcontentloaded' });
+                    const cookies = await context.cookies();
+                    fs.writeFileSync(cookiesPath, JSON.stringify(cookies, null, 2));
+                    console.log(`SUCCESS: ${cookies.length} cookies saved.`);
+                    await context.close();
+                    process.exit(0);
+                } else if (cmd === 'quit') {
+                    await context.close();
+                    process.exit(0);
+                }
+            } catch (err) {
+                console.error('Error:', err.message);
+            }
+            
+            await loop();
+        });
+    };
+
+    await loop();
 }
 
-remoteLogin().catch(console.error);
+headlessLogin().catch(console.error);

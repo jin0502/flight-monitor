@@ -72,6 +72,16 @@ Access the dashboard at `http://localhost:3000` to see:
 - `src/dashboard/` - Real-time monitoring UI and API.
 - `src/db/` - Database schema and migration logic.
 
-## 🛡️ License
+### 🚀 VPS Deployment & Blockers
 
-ISC
+If you encounter "Empty results" or "Re-authentication required" on your VPS:
+
+1. **GUI Method**: Run `node tools/manual-login.js` on the VPS (requires X11/VNC) and log in manually.
+2. **Headless Migration (Recommended)**: 
+   - Log in manually on your local machine using `node tools/manual-login.js`.
+   - Once logged in and you see flights, close the browser.
+   - Zip and upload the `data/ctrip_session/` directory from your local machine to the VPS.
+   - The monitor will detect this directory and use the full persistent session (cookies, localStorage, and fingerprint) to bypass detection.
+
+### 🛡️ Security Note
+The `data/ctrip_session` and `data/cookies.json` contain sensitive session tokens. They are ignored by git, but ensure your VPS is secure.
