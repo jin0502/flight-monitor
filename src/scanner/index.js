@@ -8,6 +8,8 @@ const airports = require('../data/airports');
 const database = require('../db');
 const { USER_AGENT } = require('../utils/config');
 
+const { sendTopDealAlerts, sendAuthAlert } = require('../alerts');
+
 async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     console.log(`[Orchestrator] Starting scan cycle. Origin: ${targetOrigin}, Destination: ${targetDest || 'ALL'}`);
     
@@ -74,6 +76,11 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
         }
 
     } catch (err) {
+        if (err.message === 'AUTH_REQUIRED') {
+            console.log(`[Orchestrator] CRITICAL: Re-authentication required. Sending alert and stopping.`);
+            await sendAuthAlert();
+            throw err; // Stop the cycle
+        }
         console.error(`[Orchestrator] Fatal Error: ${err.message}`);
     } finally {
         if (browser) {

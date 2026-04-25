@@ -28,9 +28,18 @@ class OneWayScanner {
             try {
                 const response = await responsePromise;
                 const json = await response.json();
+                
+                // AUTH DETECTION: Check for session expired or block
+                if (json.rlt === 510 || (json.ResponseStatus?.Errors?.some(e => e.ErrorCode === "NeedLogin"))) {
+                    console.log(`[OneWayScanner] CRITICAL: Authentication required detected (Status ${json.rlt})`);
+                    throw new Error('AUTH_REQUIRED');
+                }
+
                 apiFlights = json.fltitem || [];
                 console.log(`[OneWayScanner] Interception SUCCESS! Found ${apiFlights.length} flights.`);
             } catch (pErr) {
+                if (pErr.message === 'AUTH_REQUIRED') throw pErr;
+                
                 console.log(`[OneWayScanner] Interception timed out, trying DOM fallback...`);
                 // Wait for the list to appear in DOM
                 await this.page.waitForSelector('.search-list, .flight-item', { timeout: 15000 }).catch(() => {});
