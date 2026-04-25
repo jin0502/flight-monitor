@@ -10,7 +10,14 @@ const database = require('../db');
 async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     console.log(`[Orchestrator] Starting scan cycle. Origin: ${targetOrigin}, Destination: ${targetDest || 'ALL'}`);
     
-    const isHeadless = process.argv.includes('--headless');
+    // Check both ENV and ARGV for headless mode
+    let isHeadless = process.env.HEADLESS === 'true' || process.argv.includes('--headless');
+    
+    // Auto-detect Linux without display
+    if (process.env.HEADLESS === undefined && process.platform === 'linux' && !process.env.DISPLAY) {
+        isHeadless = true;
+    }
+    
     console.log(`[Orchestrator] Browser Mode: ${isHeadless ? 'HEADLESS' : 'VISIBLE'}`);
 
     let context;
