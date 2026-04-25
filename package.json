@@ -7,7 +7,8 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "test": "jest",
-    "scrape": "node src/scraper.js"
+    "scrape": "node src/scraper.js",
+    "login": "node src/tools/remote-login.js"
   },
   "keywords": [
     "flight",

@@ -64,12 +64,11 @@ class OneWayScanner {
 
             await this.page.goto(url, { waitUntil: 'networkidle', timeout: 60000 });
             
-            // Try to close any login/promo dialogs that might block the page
+            // Add a small human-like scroll to trigger activity/pull requests
+            await this.page.mouse.wheel(0, 500);
+            await this.page.waitForTimeout(2000);
+
             try {
-                // Wait a bit for popups to appear
-                await this.page.waitForTimeout(2000);
-                const selectors = [
-                    '.pop-close', '.modal-close', '.close-icon', 
                     '.login-pop-close', '.pc_login_close',
                     '.ant-modal-close'
                 ];

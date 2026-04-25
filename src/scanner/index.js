@@ -35,8 +35,9 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
                 '--disable-setuid-sandbox',
                 '--disable-infobars',
                 '--window-position=0,0',
-                '--ignore-certifcate-errors',
-                '--ignore-certifcate-errors-spki-list',
+                '--ignore-certificate-errors',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
                 '--disable-dev-shm-usage'
             ]
         });
