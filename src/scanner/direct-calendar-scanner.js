@@ -7,39 +7,31 @@ class DirectCalendarScanner {
         this.intlApiUrl = 'https://m.ctrip.com/restapi/soa2/15380/bjjson/FlightIntlAndInlandLowestPriceSearch';
     }
 
-    /**
-     * Finds the cheapest dates using direct HTTP APIs.
-     * @param {string} origin - Origin airport code.
-     * @param {string} destination - Destination airport code.
-     * @returns {Promise<Array<{date: string, price: number}>>} - List of date/price objects.
-     */
     async findCheapDates(origin, destination) {
-        const isDomestic = this.isDomesticRoute(origin, destination);
-        
+        // ALWAYS normalize PVG/SHA to SHA for city-level scanning
+        const normalizedOrigin = (origin === 'PVG' || origin === 'SHA') ? 'SHA' : origin;
+        const normalizedDest = (destination === 'PVG' || destination === 'SHA') ? 'SHA' : destination;
+
+        const isDomestic = this.isDomesticRoute(normalizedOrigin, normalizedDest);
         try {
-            if (isDomestic) {
-                return await this.fetchDomestic(origin, destination);
-            } else {
-                return await this.fetchInternational(origin, destination);
-            }
+            if (isDomestic) return await this.fetchDomestic(normalizedOrigin, normalizedDest);
+            else return await this.fetchInternational(normalizedOrigin, normalizedDest);
         } catch (err) {
-            console.error(`[DirectCalendarScanner] Error fetching ${origin} -> ${destination}:`, err.message);
+            if (err.message === 'ZERO_RESULTS') throw err;
+            console.error(`[DirectCalendarScanner] Error fetching ${normalizedOrigin} -> ${normalizedDest}:`, err.message);
             return [];
         }
     }
 
     async fetchDomestic(origin, destination) {
-        const dCity = this.mapToCityCode(origin);
-        const aCity = this.mapToCityCode(destination);
-        
-        console.log(`[DirectCalendarScanner] Using Domestic API for ${dCity} -> ${aCity}`);
-        const url = `${this.domesticApiUrl}?flightWay=Oneway&dcity=${dCity}&acity=${aCity}&direct=true&army=false`;
+        console.log(`[DirectCalendarScanner] Using Domestic API for ${origin} -> ${destination}`);
+        const url = `${this.domesticApiUrl}?flightWay=Oneway&dcity=${origin}&acity=${destination}&direct=true&army=false`;
         
         const response = await this.get(url);
         const data = JSON.parse(response);
         
         if (!data.data || !data.data.oneWayPrice || !data.data.oneWayPrice[0]) {
-            return [];
+            throw new Error('ZERO_RESULTS');
         }
         
         const priceMap = data.data.oneWayPrice[0];
@@ -50,41 +42,53 @@ class DirectCalendarScanner {
                 price: priceMap[d]
             }))
             .sort((a, b) => a.price - b.price)
-            .slice(0, 15); // Get more candidates for combinations
+            .slice(0, 15);
             
+        if (items.length === 0) throw new Error('ZERO_RESULTS');
         return items;
     }
 
     async fetchInternational(origin, destination) {
         console.log(`[DirectCalendarScanner] Using International API for ${origin} -> ${destination}`);
         
-        const dCity = this.mapToCityCode(origin);
-        const aCity = this.mapToCityCode(destination);
-        
         const payload = {
-            "departNewCityCode": dCity,
-            "arriveNewCityCode": aCity,
-            "searchType": 2,
-            "flag": 1,
-            "channelName": "FlightIntlOnline",
-            "calendarSelections": [{ "selectionType": 8, "selectionContent": ["3"] }],
+            "departNewCityCode": origin,
+            "arriveNewCityCode": destination,
             "startDate": new Date().toISOString().split('T')[0],
             "grade": 3,
-            "passengerList": [{ "passengercount": 1, "passengertype": "Adult" }]
+            "flag": 1,
+            "channelName": "FlightIntlOnline",
+            "searchType": 2,
+            "passengerList": [{ "passengercount": 1, "passengertype": "Adult" }],
+            "calendarSelections": [{ "selectionType": 8, "selectionContent": ["6"] }],
+            "Head": {
+                "Locale": "zh-CN",
+                "Currency": "CNY",
+                "Group": "Ctrip",
+                "Source": "PC",
+                "Version": "1.0",
+                "cid": "09031038111298679086"
+            }
         };
 
         const headers = {
             'Content-Type': 'application/json',
-            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Cookie': 'GUID=09031038111298679086; _deviceid=09031038111298679086'
         };
 
         const response = await this.post(this.intlApiUrl, payload, headers);
         const data = JSON.parse(response);
+        const validItems = (data.priceList || []).filter(item => item.price > 0);
+
+        if (validItems.length === 0) {
+            console.log('\n--- ❌ ZERO FLIGHTS DEBUG ---');
+            console.log(`Route: ${origin} -> ${destination}`);
+            console.log(`Raw Response: ${response.substring(0, 200)}...`);
+            throw new Error('ZERO_RESULTS');
+        }
         
-        if (!data.priceList || !Array.isArray(data.priceList)) return [];
-        
-        const items = data.priceList
-            .filter(item => item.price > 0)
+        return validItems
             .sort((a, b) => a.price - b.price)
             .slice(0, 15)
             .map(item => {
@@ -95,41 +99,16 @@ class DirectCalendarScanner {
                     price: item.price
                 };
             });
-            
-        return items;
     }
 
     isDomesticRoute(origin, destination) {
-        const o = airports.find(a => a.code === origin);
-        const d = airports.find(a => a.code === destination);
-        const isOriginChina = o?.region === 'China' || origin === 'PVG' || origin === 'SHA';
-        const isDestChina = d?.region === 'China' || destination === 'PVG' || destination === 'SHA';
-        return isOriginChina && isDestChina;
-    }
-
-    mapToCityCode(code) {
-        const mapping = {
-            'PVG': 'SHA',
-            'SHA': 'SHA',
-            'NRT': 'TYO',
-            'HND': 'TYO',
-            'KIX': 'OSA',
-            'NGO': 'OSA',
-            'ICN': 'SEL',
-            'GMP': 'SEL',
-            'BKK': 'BKK',
-            'DMK': 'BKK'
-        };
-        return mapping[code] || code;
+        const domesticCities = ['SHA', 'PVG', 'CAN', 'SZX', 'CTU', 'CKG', 'XMN', 'XIY', 'KMG', 'SYX', 'FOC', 'KWL', 'LJG', 'HAK', 'URC', 'DLC', 'TNA', 'CGO', 'NNG', 'SJW', 'LHW', 'INC'];
+        return domesticCities.includes(origin) && domesticCities.includes(destination);
     }
 
     get(url) {
         return new Promise((resolve, reject) => {
-            const options = {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-                }
-            };
+            const options = { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' } };
             https.get(url, options, (res) => {
                 let data = '';
                 res.on('data', chunk => data += chunk);
@@ -143,14 +122,8 @@ class DirectCalendarScanner {
             const urlObj = new URL(url);
             const data = JSON.stringify(payload);
             const options = {
-                hostname: urlObj.hostname,
-                port: 443,
-                path: urlObj.pathname,
-                method: 'POST',
-                headers: {
-                    ...headers,
-                    'Content-Length': Buffer.byteLength(data)
-                }
+                hostname: urlObj.hostname, port: 443, path: urlObj.pathname,
+                method: 'POST', headers: { ...headers, 'Content-Length': Buffer.byteLength(data) }
             };
             const req = https.request(options, (res) => {
                 let body = '';

@@ -1,77 +1,64 @@
 const axios = require('axios');
 
 /**
- * Sends a notification to a specific Discord channel based on the country.
- * @param {string} message The message content.
- * @param {string} country The destination country.
+ * Sends a notification to a specific Discord channel under a Category.
  */
-async function sendDiscordNotification(message, country) {
+async function sendDiscordNotification(message, channelName, categoryName = 'System') {
     const token = process.env.DISCORD_BOT_TOKEN;
     const guildId = process.env.DISCORD_GUILD_ID;
 
-    if (!token || !guildId) {
-        console.warn('Discord bot token or guild ID not set. Skipping notification.');
-        return;
-    }
+    if (!token || !guildId) return;
 
     try {
-        const channelId = await getOrCreateChannel(country);
-        const url = `https://discord.com/api/v10/channels/${channelId}/messages`;
+        // Rate Limit Protection: Wait 1 second between alerts
+        await new Promise(r => setTimeout(r, 1000));
 
-        await axios.post(url, {
-            content: message
-        }, {
-            headers: {
-                'Authorization': `Bot ${token}`,
-                'Content-Type': 'application/json'
-            }
-        });
-    } catch (error) {
-        console.error('Error sending Discord notification:', error.response?.data || error.message);
-        throw error;
+        const normalizedCat = categoryName; // Keep original case for matching
+        const normalizedChan = channelName.toLowerCase().replace(/\s+/g, '-');
+
+        const categoryId = await getOrCreateCategory(guildId, normalizedCat, token);
+        const channelId = await getOrCreateChannel(guildId, normalizedChan, categoryId, token);
+
+        await axios.post(`https://discord.com/api/v10/channels/${channelId}/messages`, 
+            { content: message },
+            { headers: { Authorization: `Bot ${token}` } }
+        );
+    } catch (err) {
+        if (err.response?.status === 429) {
+            console.log(`[Discord] Rate limited. Waiting ${err.response.data.retry_after}s...`);
+            await new Promise(r => setTimeout(r, err.response.data.retry_after * 1000));
+        } else {
+            console.error(`[Discord] Error: ${err.response?.data?.message || err.message}`);
+        }
     }
 }
 
-/**
- * Finds a channel by name (normalized country) or creates it if it doesn't exist.
- * @param {string} countryName 
- * @returns {Promise<string>} The channel ID.
- */
-async function getOrCreateChannel(countryName = 'general') {
-    const token = process.env.DISCORD_BOT_TOKEN;
-    const guildId = process.env.DISCORD_GUILD_ID;
-    
-    // Normalize country name for Discord channel channel-name (lowercase, alphanumeric, dashes)
-    const normalizedName = countryName.toLowerCase()
-        .replace(/[^a-z0-9\s]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .trim();
-    
-    const headers = { 'Authorization': `Bot ${token}` };
-
-    // 1. List channels to find existing
+async function getOrCreateCategory(guildId, name, token) {
+    const headers = { Authorization: `Bot ${token}` };
     const { data: channels } = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/channels`, { headers });
     
-    const existing = channels.find(c => c.name === normalizedName && c.type === 0);
+    // CASE-INSENSITIVE MATCH: Find if "China" or "CHINA" or "china" exists
+    const existing = channels.find(c => c.name.toLowerCase() === name.toLowerCase() && c.type === 4);
     if (existing) return existing.id;
 
-    // 2. Not found, create it
-    console.log(`Creating Discord channel #${normalizedName} for country: ${countryName}`);
-    try {
-        const { data: newChannel } = await axios.post(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
-            name: normalizedName,
-            type: 0 // Guild Text Channel
-        }, { headers });
-        return newChannel.id;
-    } catch (createError) {
-        console.error(`Failed to create channel #${normalizedName}:`, createError.response?.data || createError.message);
-        // Fallback to general if available
-        const general = channels.find(c => c.name === 'general' && c.type === 0);
-        return general ? general.id : channels[0].id;
-    }
+    console.log(`[Discord] Creating category: ${name}`);
+    const { data: newCat } = await axios.post(`https://discord.com/api/v10/guilds/${guildId}/channels`, 
+        { name, type: 4 }, { headers });
+    return newCat.id;
 }
 
-module.exports = {
-    sendDiscordNotification
-};
+async function getOrCreateChannel(guildId, name, categoryId, token) {
+    const headers = { Authorization: `Bot ${token}` };
+    const { data: channels } = await axios.get(`https://discord.com/api/v10/guilds/${guildId}/channels`, { headers });
+    
+    // CASE-INSENSITIVE MATCH: Avoid duplicate channels like #Tokyo vs #tokyo
+    const existing = channels.find(c => c.name.toLowerCase() === name.toLowerCase() && c.parent_id === categoryId);
+    if (existing) return existing.id;
+
+    console.log(`[Discord] Creating channel: #${name}`);
+    const { data: newChan } = await axios.post(`https://discord.com/api/v10/guilds/${guildId}/channels`, 
+        { name, type: 0, parent_id: categoryId }, { headers });
+    return newChan.id;
+}
+
+module.exports = { sendDiscordNotification };

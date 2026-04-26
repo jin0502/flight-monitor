@@ -1,279 +1,78 @@
 const { sendTelegramNotification } = require('./channels/telegram');
 const { sendDiscordNotification } = require('./channels/discord');
-
-/**
- * Checks current price against historical data and triggers alerts if necessary.
- *
- * Compares the scraped price with user-defined thresholds and historical averages.
- * Triggers alerts for significant price drops or when a price is below a threshold.
- * Limits duplicate alerts for the same price/route combination within 24 hours.
- *
- * @param {Object} priceData The scraped flight data.
- * @param {number} priceData.route_id The ID of the monitored route.
- * @param {number} priceData.price The scraped flight price.
- * @param {string} priceData.scrape_date The ISO string of the scrape date.
- * @param {string} priceData.travel_date The ISO string of the travel date.
- * @param {string} [priceData.airline] The airline name.
- * @param {string} [priceData.duration] The flight duration.
- * @param {string} [priceData.flight_number] The flight number.
- * @param {string} [priceData.departure_time] The departure time.
- * @param {string} [priceData.return_date] The return travel date.
- * @param {string} [priceData.return_flight_number] The return flight number.
- * @param {string} [priceData.return_departure_time] The return departure time.
- * @param {string} [priceData.origin_airport_name] Full name of origin airport.
- * @param {string} [priceData.destination_airport_name] Full name of destination airport.
- * @param {import('sqlite3').Database} db The database instance.
- * @returns {Promise<boolean>} True if an alert was triggered, false otherwise.
- */
-async function checkAlerts(priceData, db) {
-    return new Promise((resolve, reject) => {
-        // 1. Deduplication: Check if same alert was sent recently (last 24h)
-        const dedupeSql = `
-            SELECT a.id 
-            FROM alerts a 
-            JOIN price_history ph ON a.price_history_id = ph.id 
-            WHERE ph.route_id = ? 
-              AND ph.price = ? 
-              AND ph.travel_date = ? 
-              AND (ph.airline = ? OR (ph.airline IS NULL AND ? IS NULL))
-              AND (ph.flight_number = ? OR (ph.flight_number IS NULL AND ? IS NULL))
-              AND a.sent_at > datetime('now', '-24 hours')
-        `;
-
-        db.get(dedupeSql, [
-            priceData.route_id, 
-            priceData.price, 
-            priceData.travel_date, 
-            priceData.airline || null,
-            priceData.airline || null,
-            priceData.flight_number || null,
-            priceData.flight_number || null
-        ], (err, existingAlert) => {
-            if (err) return reject(err);
-            if (existingAlert) {
-                return resolve(false); // Already alerted
-            }
-
-            // 2. Get route threshold and historical average
-            const getRouteInfoSql = `
-                SELECT 
-                    mr.origin,
-                    mr.destination,
-                    mr.alert_threshold,
-                    AVG(ph.price) as avg_price,
-                    COUNT(ph.price) as history_count
-                FROM monitored_routes mr
-                LEFT JOIN price_history ph ON mr.id = ph.route_id
-                WHERE mr.id = ?
-                GROUP BY mr.id
-            `;
-
-            db.get(getRouteInfoSql, [priceData.route_id], (err, row) => {
-                if (err) return reject(err);
-                if (!row) return reject(new Error('Route not found'));
-
-                // 3. Insert into price_history
-                const params = [
-                    priceData.route_id,
-                    priceData.price,
-                    priceData.scrape_date,
-                    priceData.travel_date,
-                    priceData.airline,
-                    priceData.duration,
-                    priceData.flight_number,
-                    priceData.departure_time,
-                    priceData.return_date,
-                    priceData.return_flight_number,
-                    priceData.return_departure_time
-                ];
-
-                const insertPriceSql = `
-                    INSERT INTO price_history (
-                        route_id, price, scrape_date, travel_date, airline, duration, flight_number, departure_time,
-                        return_date, return_flight_number, return_departure_time
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                `;
-
-                db.run(insertPriceSql, params, async function(err) {
-                    if (err) return reject(err);
-                    
-                    const priceHistoryId = this.lastID;
-                    const alertsToCreate = [];
-
-                    // 4. Compare with threshold
-                    if (row.alert_threshold && priceData.price <= row.alert_threshold) {
-                        alertsToCreate.push({ type: 'THRESHOLD' });
-                    }
-
-                    // 5. Compare with Day-Specific Minimum (PRICE_DROP)
-                    // We query the lowest price ever seen for this specific travel date
-                    const getMinForDateSql = `
-                        SELECT MIN(price) as min_price 
-                        FROM price_history 
-                        WHERE route_id = ? AND travel_date = ?
-                    `;
-                    
-                    await new Promise((res, rej) => {
-                        db.get(getMinForDateSql, [priceData.route_id, priceData.travel_date], (err, minRow) => {
-                            if (err) return rej(err);
-                            
-                            // If no history for this date yet, we don't alert PRICE_DROP 
-                            // (it will be the baseline for next time)
-                            if (minRow && minRow.min_price && priceData.price < minRow.min_price) {
-                                alertsToCreate.push({ type: 'PRICE_DROP' });
-                            }
-                            res();
-                        });
-                    });
-
-                    if (alertsToCreate.length === 0) {
-                        // Still insert to DB so it becomes the new baseline if it's the lowest
-                        return resolve(false);
-                    }
-
-                    // 6. Create alerts and send notifications
-                    const originCode = priceData.origin_airport || row.origin;
-                    const destinationCode = priceData.destination_airport || row.destination;
-
-                    // Construct alert message (HTML for Telegram)
-                    let alertMsg = `🚀 <b>Flight Alert!</b>\n\n`;
-                    alertMsg += `📍 <b>Route:</b> ${originCode} ✈️ ${destinationCode}\n`;
-                    
-                    const priceLabel = priceData.return_date ? '(Round-Trip)' : '';
-                    alertMsg += `💰 <b>Price:</b> <b>¥${priceData.price}</b> ${priceLabel}\n`;
-                    alertMsg += `📅 <b>Date:</b> ${priceData.travel_date}\n`;
-                    
-                    if (priceData.departure_time && priceData.departure_time !== 'N/A') {
-                        alertMsg += `⏰ <b>Takeoff:</b> ${priceData.departure_time}\n`;
-                    }
-                    
-                    if (priceData.flight_number && priceData.flight_number !== 'N/A') {
-                        alertMsg += `🔢 <b>Flight No:</b> ${priceData.flight_number}\n`;
-                    }
-                    
-                    alertMsg += `🏢 <b>Airline:</b> ${priceData.airline || 'Unknown'}\n`;
-                    
-                    // Return Flight info for Round Trips
-                    if (priceData.return_date) {
-                        alertMsg += `\n--- <b>RETURN FLIGHT</b> ---\n`;
-                        alertMsg += `📅 <b>Date:</b> ${priceData.return_date}\n`;
-                        
-                        const hasReturnDetails = priceData.return_flight_number && 
-                            priceData.return_flight_number !== 'N/A' && 
-                            priceData.return_flight_number !== '';
-                            
-                        if (hasReturnDetails) {
-                            if (priceData.return_departure_time && priceData.return_departure_time !== 'N/A') {
-                                alertMsg += `⏰ <b>Takeoff:</b> ${priceData.return_departure_time}\n`;
-                            }
-                            alertMsg += `🔢 <b>Flight No:</b> ${priceData.return_flight_number}\n`;
-                            alertMsg += `🏢 <b>Airline:</b> ${priceData.return_airline || 'Unknown'}\n`;
-                        } else {
-                            alertMsg += `🔄 <b>Status:</b> Auto-selected by system for best price\n`;
-                        }
-                    }
-                    
-                    alertMsg += `\n⚠️ <b>Type:</b> ${alertsToCreate.map(a => a.type).join(', ')}\n`;
-
-                    // Simple YYYY-MM-DD HH:mm format for Scraped At
-                    const simpleScrapedAt = priceData.scrape_date
-                        .replace('T', ' ')
-                        .substring(0, 16);
-                    alertMsg += `📅 <b>Scraped At:</b> ${simpleScrapedAt}`;
-
-                    // Discord message (Markdown, plain text formatting)
-                    const discordMsg = alertMsg.replace(/<b>/g, '**').replace(/<\/b>/g, '**');
-
-                    for (const alert of alertsToCreate) {
-                        const insertAlertSql = `INSERT INTO alerts (price_history_id, sent_at, type) VALUES (?, ?, ?)`;
-                        const now = new Date();
-                        const gmt8SentAt = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
-                        
-                        await new Promise((res, rej) => {
-                            db.run(insertAlertSql, [priceHistoryId, gmt8SentAt, alert.type], (err) => {
-                                if (err) rej(err);
-                                else res();
-                            });
-                        });
-                    }
-
-                    // Send notifications (async, don't block the loop)
-                    sendTelegramNotification(alertMsg).catch(e => console.error('Telegram Error:', e.message));
-                    
-                    // Route Discord by country
-                    sendDiscordNotification(discordMsg, row.destination).catch(e => console.error('Discord Error:', e.message));
-
-                    resolve(true);
-                });
-            });
-        });
-    });
-}
+const cityNames = require('../data/city-names');
+const airports = require('../data/airports');
 
 /**
  * Sends alerts for the top flight deals identified by the combination engine.
- * @param {Array} deals - List of combination deals.
- * @param {import('sqlite3').Database} db 
  */
 async function sendTopDealAlerts(deals, db) {
-    const airportNames = require('../data/airport-names');
+    if (deals.length === 0) return {};
     
+    const counts = {};
+
     for (let i = 0; i < deals.length; i++) {
         const deal = deals[i];
-        const originName = airportNames[deal.origin] || deal.origin;
-        const destName = airportNames[deal.destination_code] || deal.destination_code;
         
-        let msg = `✈️ <b>Best Flight Deal #${i + 1} of ${deals.length}</b>\n\n`;
-        
-        msg += `🔵 <b>OUTBOUND:</b>\n`;
-        msg += `📍 ${originName} ✈️ ${destName}\n`;
-        msg += `📅 ${deal.out_date} | 💰 <b>¥${deal.out_price}</b>\n\n`;
-        
-        msg += `🔴 <b>RETURN:</b>\n`;
-        msg += `📍 ${destName} ✈️ ${originName}\n`;
-        msg += `📅 ${deal.ret_date} | 💰 <b>¥${deal.ret_price}</b>\n\n`;
-        
-        msg += `💰 <b>TOTAL: ¥${deal.total_price}</b> (${deal.gap_days}-day trip)`;
+        // 1. Resolve Data
+        const outInfo = airports.find(a => a.code === deal.out_city_code || a.cityCode === deal.out_city_code);
+        if (!outInfo) continue;
 
-        // Send notifications
-        const discordMsg = msg.replace(/<b>/g, '**').replace(/<\/b>/g, '**');
-        
-        await sendTelegramNotification(msg).catch(e => console.error('Telegram Error:', e.message));
-        await sendDiscordNotification(discordMsg, deal.destination_code).catch(e => console.error('Discord Error:', e.message));
+        // 2. Routing Logic
+        const categoryName = outInfo.region;
+        let channelName;
 
-        // Mark as alerted
-        await new Promise((resolve, reject) => {
-            db.run('UPDATE flight_combinations SET alerted = 1 WHERE id = ?', [deal.id], (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
+        if (deal.match_level === 'category') {
+            channelName = 'general';
+        } else {
+            // Channel Level Match
+            channelName = (outInfo.region === 'Europe' || outInfo.region === 'Southeast Asia') ? outInfo.country : outInfo.city;
+        }
+
+        counts[categoryName] = (counts[categoryName] || 0) + 1;
+
+        // 3. Name Resolution
+        const originCityName = cityNames['SHA']; 
+        const destCityName = cityNames[deal.out_city_code] || deal.out_city_code;
+        const retCityName = cityNames[deal.ret_city_code] || deal.ret_city_code;
+        const isOpenJaw = deal.out_city_code !== deal.ret_city_code;
+        
+        let discordMsg = `### ✈️ Deal #${i + 1}: ${destCityName}${isOpenJaw ? ' / ' + retCityName : ''}\n`;
+        discordMsg += `> 💰 **TOTAL: ¥${deal.total_price}** (${deal.gap_days} days)\n`;
+        discordMsg += `> \n`;
+        discordMsg += `> 🛫 **OUT:** ${originCityName} → ${destCityName} (${deal.out_date})\n`;
+        discordMsg += `> 🛬 **RET:** ${retCityName} → ${originCityName} (${deal.ret_date})\n\n`;
+        
+        // 4. Persistence & Notification
+        const fs = require('fs');
+        const path = require('path');
+        const logPath = path.join(process.cwd(), 'data/latest_alerts.txt');
+        const logEntry = `\n--- [${categoryName} > ${channelName}] Deal #${i+1} ---\n${discordMsg}\n------------------------------------------\n`;
+        fs.appendFileSync(logPath, logEntry);
+
+        await sendDiscordNotification(discordMsg, channelName, categoryName).catch(e => {});
+
+        await new Promise((resolve) => {
+            db.run('UPDATE flight_combinations SET alerted = 1 WHERE id = ?', [deal.id], () => resolve());
         });
     }
+
+    return counts;
 }
 
-/**
- * Sends a critical alert when browser session authentication is required.
- */
 async function sendAuthAlert() {
-    const msg = `⚠️ **ACTION REQUIRED: Ctrip Re-authentication Needed**\n\nThe scraper has detected a 'needUserLogin' block. Please perform a remote login to refresh the session.\n\n📖 **Guide:** [Remote Login Guide](https://github.com/${process.env.GITHUB_REPOSITORY}/blob/main/docs/REMOTE_LOGIN.md)`;
-    
-    console.log('[AlertEngine] Sending Re-auth Alert...');
-    await sendDiscordNotification(msg, 'general').catch(e => console.error('Discord Auth Alert Error:', e.message));
+    await sendDiscordNotification(`⚠️ **ACTION REQUIRED: Ctrip Re-authentication Needed**`, 'general', 'System');
 }
 
-/**
- * Sends a critical alert when a Captcha is detected.
- */
 async function sendCaptchaAlert() {
-    const msg = `🛡️ **ANTI-BOT TRIGGERED: Captcha Detected**\n\nCtrip has triggered a 'showCaptchaModal2' block. The scan has been stopped to protect the account/IP. Manual intervention or a cool-down period is required.`;
-    
-    console.log('[AlertEngine] Sending Captcha Alert...');
-    await sendDiscordNotification(msg, 'general').catch(e => console.error('Discord Captcha Alert Error:', e.message));
+    await sendDiscordNotification(`🛡️ **ANTI-BOT TRIGGERED: Captcha Detected**`, 'general', 'System');
 }
 
-module.exports = {
-    checkAlerts,
-    sendTopDealAlerts,
-    sendAuthAlert,
-    sendCaptchaAlert
-};
+async function sendVerificationAlert(origin, dest) {
+    const airportInfo = airports.find(a => a.code === dest || a.cityCode === dest);
+    const category = airportInfo?.region || 'System';
+    const channel = airportInfo ? ((airportInfo.region === 'Europe' || airportInfo.region === 'Southeast Asia') ? airportInfo.country : airportInfo.city) : 'Verification';
+    await sendDiscordNotification(`📉 **API VERIFICATION FAILED: Zero Flights Found for ${dest}**`, channel, category).catch(e => {});
+}
+
+module.exports = { sendTopDealAlerts, sendAuthAlert, sendCaptchaAlert, sendVerificationAlert, sendTelegramNotification };

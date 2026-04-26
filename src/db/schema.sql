@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS flight_combinations (
     total_price REAL NOT NULL,
     gap_days INTEGER NOT NULL,
     alerted INTEGER DEFAULT 0,
+    match_level TEXT DEFAULT 'channel',
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (outbound_id) REFERENCES flights (id),
     FOREIGN KEY (return_id) REFERENCES flights (id),

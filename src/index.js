@@ -2,126 +2,86 @@ const { initDB, getDB } = require('./db');
 const { checkAlerts } = require('./alerts');
 const app = require('./dashboard');
 const dotenv = require('dotenv');
+const airports = require('./data/airports');
 
 dotenv.config();
 
 const PORT = process.env.PORT || 3000;
-// Changed default from 12 to 4 hours
 const SCRAPE_INTERVAL_HOURS = parseFloat(process.env.SCRAPE_INTERVAL_HOURS) || 4;
 
-/**
- * Main function to start the application.
- * Initializes the database, starts the Express dashboard, and begins the monitoring loop.
- * @async
- * @returns {Promise<void>}
- */
 async function main() {
     try {
         console.log('Initializing Shanghai Flight Monitor...');
-        
-        // 1. Initialize DB
         await initDB();
-        console.log('Database initialized.');
-
-        // 2. Start Dashboard
-        app.listen(PORT, () => {
-            console.log(`Dashboard running at http://localhost:${PORT}`);
-        });
-
-        // 3. Start Monitoring Loop
-        console.log('Starting initial monitor loop...');
-        await runMonitorLoop(); // Use await here to track first run
+        // app.listen(PORT, () => console.log(`Dashboard running at http://localhost:${PORT}`));
         
-        // Schedule periodic scrapes using a safer timeout pattern
+        await runMonitorLoop();
+        
         const scheduleNext = () => {
-            const intervalMs = SCRAPE_INTERVAL_HOURS * 60 * 60 * 1000;
             console.log(`Scheduling next scrape in ${SCRAPE_INTERVAL_HOURS} hours.`);
             setTimeout(async () => {
                 await runMonitorLoop();
                 scheduleNext();
-            }, intervalMs);
+            }, SCRAPE_INTERVAL_HOURS * 60 * 60 * 1000);
         };
-        
         scheduleNext();
-
     } catch (err) {
         console.error('Startup error:', err);
         process.exit(1);
     }
 }
 
-/**
- * Main execution loop for scraping and alerting.
- * Retrieves monitored routes from the database, scrapes Google Flights and Ctrip for prices,
- * and passes the results to the alert engine.
- * @async
- * @returns {Promise<void>}
- */
 const { runFullScan } = require('./scanner');
-const { sendTopDealAlerts } = require('./alerts');
+const { sendTopDealAlerts, sendTelegramNotification } = require('./alerts');
 
-/**
- * Main execution loop for the new One-Way + Combination Engine.
- * Runs Phase 1 (Calendar Scan), Phase 2 (Detail Scan), and Phase 3 (Combination Engine).
- * @async
- * @returns {Promise<void>}
- */
 async function runMonitorLoop() {
-    const now = new Date();
-    const gmt8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
-    console.log(`[${gmt8Time}] Starting One-Way Scan & Combination Cycle...`);
+    console.log(`[${new Date().toLocaleString()}] Starting Scan & Combination Cycle...`);
     
     try {
-        // Parse CLI arguments
         const args = process.argv.slice(2);
-        const originArg = args.includes('--origin') ? args[args.indexOf('--origin') + 1] : 'PVG';
+        const originArg = args.includes('--origin') ? args[args.indexOf('--origin') + 1] : 'SHA';
         const destArg = args.includes('--dest') ? args[args.indexOf('--dest') + 1] : null;
 
-        // Run the orchestrator
+        // 1. Run the LITE orchestrator (Phase 1 Scans)
         await runFullScan(originArg, destArg);
         
-        const { getTopDeals } = require('./scanner/combination-engine');
+        // 2. Run Phase 3: Combination Engine (PER CITY)
         const engine = new (require('./scanner/combination-engine'))();
-        const topDeals = await engine.getTopDeals(5);
         
-        if (topDeals && topDeals.length > 0) {
-            console.log(`Found ${topDeals.length} new deals. Sending alerts...`);
-            await sendTopDealAlerts(topDeals, getDB());
-        } else {
-            console.log('No new deals found in this cycle.');
+        // Identify unique cities to alert on
+        const uniqueCityCodes = [...new Set(airports.map(a => a.cityCode))];
+        
+        console.log(`[Orchestrator] Generating top deals for ${uniqueCityCodes.length} cities...`);
+        
+        const globalCounts = {};
+
+        for (const cityCode of uniqueCityCodes) {
+            // If user specified a --dest, only alert on that city
+            if (destArg) {
+                const targetAirport = airports.find(a => a.code === destArg);
+                if (targetAirport && cityCode !== targetAirport.cityCode) continue;
+            }
+
+            const cityDeals = await engine.generateCombinations(cityCode);
+            if (cityDeals.length > 0) {
+                const sessionCounts = await sendTopDealAlerts(cityDeals, getDB());
+                for (const [cat, count] of Object.entries(sessionCounts)) {
+                    globalCounts[cat] = (globalCounts[cat] || 0) + count;
+                }
+            }
+        }
+
+        // 3. Send Telegram Summary Alerts (One message per category)
+        for (const [category, count] of Object.entries(globalCounts)) {
+            console.log(`[Orchestrator] Sending Telegram summary for ${category}: ${count} deals`);
+            await sendTelegramNotification(`${count} new deals for ${category}`).catch(e => {
+                console.error(`[Orchestrator] Telegram summary failed for ${category}: ${e.message}`);
+            });
         }
 
     } catch (err) {
         console.error('Monitor loop error:', err);
-    } finally {
-        const nowEnd = new Date();
-        const gmt8EndTime = new Date(nowEnd.getTime() + (8 * 60 * 60 * 1000)).toISOString().replace('Z', '+08:00');
-        console.log(`[${gmt8EndTime}] Scan & Combination Cycle finished.`);
     }
 }
 
-/**
- * Helper to format date as YYYY-MM-DD.
- * @param {Date} date - The date to format.
- * @returns {string} The formatted date string.
- */
-function formatDate(date) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
-}
-
-// Handle graceful shutdown
-process.on('SIGINT', () => {
-    console.log('Shutting down gracefully...');
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('Received SIGTERM, shutting down...');
-    process.exit(0);
-});
-
-// Run the app
 main();

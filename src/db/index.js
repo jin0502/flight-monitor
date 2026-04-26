@@ -39,12 +39,14 @@ function initDB(dbPath) {
                     for (const colDef of columns) {
                         const colName = colDef.split(' ')[0];
                         await new Promise((res) => {
-                            db.run(`ALTER TABLE flights ADD COLUMN ${colDef}`, (err) => {
-                                // Ignore error if column already exists
-                                res();
-                            });
+                            db.run(`ALTER TABLE flights ADD COLUMN ${colDef}`, (err) => res());
                         });
                     }
+
+                    // Add match_level to flight_combinations
+                    await new Promise((res) => {
+                        db.run(`ALTER TABLE flight_combinations ADD COLUMN match_level TEXT DEFAULT 'channel'`, (err) => res());
+                    });
                 };
 
                 checkAndAdd().then(() => resolve(db));

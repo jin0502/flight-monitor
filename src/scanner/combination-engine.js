@@ -1,139 +1,124 @@
 const { getDB } = require('../db');
+const airports = require('../data/airports');
 
 class CombinationEngine {
     constructor() {}
 
-    /**
-     * Generates flight combinations from memory arrays.
-     */
-    combine(outbounds, inbounds) {
-        const combinations = [];
-        for (const out of outbounds) {
-            const outDate = new Date(out.flight_date);
-            const matches = inbounds.filter(inbound => {
-                const inDate = new Date(inbound.flight_date);
-                const diffTime = inDate - outDate;
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                return diffDays >= 3 && diffDays <= 9;
-            });
-
-            matches.forEach(inbound => {
-                combinations.push({
-                    outbound_id: out.id || 0,
-                    return_id: inbound.id || 0,
-                    outbound: out,
-                    inbound: inbound,
-                    total_price: out.price + inbound.price,
-                    gap_days: Math.ceil((new Date(inbound.flight_date) - outDate) / (1000 * 60 * 60 * 24)),
-                    created_at: new Date().toISOString()
-                });
-            });
-        }
-        return combinations.sort((a, b) => a.total_price - b.total_price);
-    }
-
-    async generateCombinations() {
-        console.log('[CombinationEngine] Generating combinations from database...');
+    async generateCombinations(targetCityCode = null) {
+        console.log(`[CombinationEngine] Generating combinations... ${targetCityCode ? `(City: ${targetCityCode})` : ''}`);
         const db = getDB();
 
-        // 1. Get all outbound flights (Shanghai -> Any)
-        const outbounds = await new Promise((resolve, reject) => {
-            db.all("SELECT * FROM flights WHERE origin IN ('PVG', 'SHA') AND updated_at > datetime('now', '-24 hours')", [], (err, rows) => {
+        // 1. Load all flights with metadata
+        const flights = await new Promise((resolve, reject) => {
+            db.all("SELECT * FROM flights WHERE price > 0 AND updated_at > datetime('now', '-24 hours')", [], (err, rows) => {
                 if (err) reject(err);
                 else resolve(rows);
             });
         });
 
-        // 2. Get all inbound flights (Any -> Shanghai)
-        const inbounds = await new Promise((resolve, reject) => {
-            db.all("SELECT * FROM flights WHERE dest IN ('PVG', 'SHA') AND updated_at > datetime('now', '-24 hours')", [], (err, rows) => {
-                if (err) reject(err);
-                else resolve(rows);
-            });
-        });
+        // Enrich flights with hierarchy info
+        const enriched = flights.map(f => {
+            const info = airports.find(a => a.cityCode === f.origin || a.code === f.origin || a.cityCode === f.dest || a.code === f.dest);
+            return { ...f, info };
+        }).filter(f => f.info);
+
+        const outbounds = enriched.filter(f => f.origin === 'SHA' || f.origin === 'PVG');
+        const inbounds = enriched.filter(f => f.dest === 'SHA' || f.dest === 'PVG');
 
         const combinations = [];
-
-        for (const outbound of outbounds) {
-            const outDate = new Date(outbound.date);
+        for (const out of outbounds) {
+            const outDate = new Date(out.date);
             
-            // Find matching inbounds
-            const matches = inbounds.filter(inbound => {
-                if (inbound.origin !== outbound.dest) return false;
-                
-                const inDate = new Date(inbound.date);
-                const diffTime = inDate - outDate;
-                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-                
-                return diffDays >= 3 && diffDays <= 9;
-            });
+            for (const inbound of inbounds) {
+                const outInfo = out.info;
+                const inInfo = inbound.info;
 
-            matches.forEach(inbound => {
-                const inDate = new Date(inbound.date);
-                const gapDays = Math.ceil((inDate - outDate) / (1000 * 60 * 60 * 24));
+                let isChannelMatch = false;
+                let isCategoryMatch = false;
 
-                combinations.push({
-                    outbound_id: outbound.id,
-                    return_id: inbound.id,
-                    total_price: outbound.price + inbound.price,
-                    gap_days: gapDays,
-                    created_at: new Date().toISOString()
-                });
-            });
+                if (outInfo.region === 'Europe' || outInfo.region === 'Southeast Asia') {
+                    // Rule: Channel is Country level
+                    isChannelMatch = outInfo.country === inInfo.country;
+                    if (outInfo.region === 'Europe') {
+                        isCategoryMatch = outInfo.region === inInfo.region && outInfo.country !== inInfo.country;
+                    }
+                } else if (outInfo.region === 'China') {
+                    // Rule: Channel is City level. NO CROSS-CITY for China.
+                    isChannelMatch = outInfo.cityCode === inInfo.cityCode;
+                    isCategoryMatch = false; 
+                } else {
+                    // Rule: Others (Japan, Australia, etc.)
+                    isChannelMatch = outInfo.cityCode === inInfo.cityCode;
+                    isCategoryMatch = outInfo.region === inInfo.region && outInfo.cityCode !== inInfo.cityCode;
+                }
+
+                if (isChannelMatch || isCategoryMatch) {
+                    const inDate = new Date(inbound.date);
+                    const diffDays = Math.ceil((inDate - outDate) / (1000 * 60 * 60 * 24));
+                    
+                    if (diffDays >= 3 && diffDays <= 9) {
+                        combinations.push({
+                            outbound_id: out.id,
+                            return_id: inbound.id,
+                            total_price: out.price + inbound.price,
+                            gap_days: diffDays,
+                            created_at: new Date().toISOString(),
+                            match_level: isChannelMatch ? 'channel' : 'category'
+                        });
+                    }
+                }
+            }
         }
 
-        console.log(`[CombinationEngine] Found ${combinations.length} potential combinations.`);
+        if (combinations.length > 0) await this.saveCombinations(combinations);
         
-        await this.saveCombinations(combinations);
-        return this.getTopDeals(5);
+        // Final filter for return
+        const cityAirports = targetCityCode ? airports.filter(a => a.cityCode === targetCityCode).map(a => a.code) : [];
+        const cityCodes = targetCityCode ? [targetCityCode] : [];
+        
+        return this.getTopDeals(5, [...cityAirports, ...cityCodes]);
     }
 
     async saveCombinations(combinations) {
         const db = getDB();
-        try {
-            const stmt = db.prepare(`
-                INSERT INTO flight_combinations 
-                (outbound_id, return_id, total_price, gap_days, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(outbound_id, return_id) DO UPDATE SET
-                total_price = excluded.total_price,
-                created_at = excluded.created_at
-            `);
-
-            for (const c of combinations) {
-                await new Promise((resolve, reject) => {
-                    stmt.run(
-                        c.outbound_id, c.return_id, c.total_price, 
-                        c.gap_days, c.created_at,
-                        (err) => {
-                            if (err) reject(err);
-                            else resolve();
-                        }
-                    );
-                });
-            }
-            stmt.finalize();
-        } catch (err) {
-            console.error('[CombinationEngine] DB Error:', err.message);
+        const stmt = db.prepare(`
+            INSERT INTO flight_combinations 
+            (outbound_id, return_id, total_price, gap_days, created_at, match_level)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(outbound_id, return_id) DO UPDATE SET
+            total_price = excluded.total_price,
+            created_at = excluded.created_at,
+            match_level = excluded.match_level
+        `);
+        for (const c of combinations) {
+            await new Promise(r => stmt.run(c.outbound_id, c.return_id, c.total_price, c.gap_days, c.created_at, c.match_level, r));
         }
+        stmt.finalize();
     }
 
-    async getTopDeals(limit = 5) {
+    async getTopDeals(limit = 10, targetCodes = []) {
         const db = getDB();
         return new Promise((resolve, reject) => {
-            const query = `
+            let query = `
                 SELECT c.*, 
-                       o.date as out_date, o.price as out_price, o.airline as out_airline, o.flight_no as out_fn, 
-                       r.date as ret_date, r.price as ret_price, r.airline as ret_airline, r.flight_no as ret_fn,
-                       o.dest as destination_code
+                       o.date as out_date, o.price as out_price, o.dest as out_city_code,
+                       r.date as ret_date, r.price as ret_price, r.origin as ret_city_code
                 FROM flight_combinations c
                 JOIN flights o ON c.outbound_id = o.id
                 JOIN flights r ON c.return_id = r.id
-                WHERE c.alerted = 0
-                ORDER BY c.total_price ASC
-                LIMIT ?
+                WHERE c.alerted = 0 
+                  AND o.price > 0 AND r.price > 0
+                  AND c.created_at > datetime('now', '-2 hours')
             `;
-            db.all(query, [limit], (err, rows) => {
+            const params = [];
+            if (targetCodes.length > 0) {
+                const codesStr = targetCodes.map(c => `'${c}'`).join(',');
+                query += ` AND o.dest IN (${codesStr})`;
+            }
+            query += ` ORDER BY c.total_price ASC LIMIT ?`;
+            params.push(limit);
+
+            db.all(query, params, (err, rows) => {
                 if (err) reject(err);
                 else resolve(rows);
             });

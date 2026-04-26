@@ -1,83 +1,83 @@
 /**
- * Curated list of 48 airports for the Shanghai Flight Monitor.
- * Includes major hubs in East Asia, Southeast Asia, Europe, and Oceania.
+ * Verified list of airports with DIRECT flights to/from Shanghai (PVG/SHA).
+ * Hierarchy:
+ * - Europe (excl UK) & SE Asia: { code, name, city, cityCode, country, region }
+ * - Others: { code, name, city, cityCode, country, region: country }
  */
 const airports = [
-    // China (21)
-    { code: 'CAN', name: 'Guangzhou', region: 'China' },
-    { code: 'SZX', name: 'Shenzhen', region: 'China' },
-    { code: 'CTU', name: 'Chengdu Shuangliu', region: 'China' },
-    { code: 'TFU', name: 'Chengdu Tianfu', region: 'China' },
-    { code: 'CKG', name: 'Chongqing', region: 'China' },
-    { code: 'XMN', name: 'Xiamen', region: 'China' },
-    { code: 'XIY', name: 'Xi\'an', region: 'China' },
-    { code: 'KMG', name: 'Kunming', region: 'China' },
-    { code: 'SYX', name: 'Sanya', region: 'China' },
-    { code: 'FOC', name: 'Fuzhou', region: 'China' },
-    { code: 'KWL', name: 'Guilin', region: 'China' },
-    { code: 'LJG', name: 'Lijiang', region: 'China' },
-    { code: 'HAK', name: 'Haikou', region: 'China' },
-    { code: 'URC', name: 'Urumqi', region: 'China' },
-    { code: 'DLC', name: 'Dalian', region: 'China' },
-    { code: 'TNA', name: 'Jinan', region: 'China' },
-    { code: 'CGO', name: 'Zhengzhou', region: 'China' },
-    { code: 'NNG', name: 'Nanning', region: 'China' },
-    { code: 'SJW', name: 'Shijiazhuang', region: 'China' },
-    { code: 'LHW', name: 'Lanzhou', region: 'China' },
-    { code: 'INC', name: 'Yinchuan', region: 'China' },
+    // --- CHINA (Region = Country) ---
+    { code: 'CAN', name: 'Guangzhou Baiyun', city: 'Guangzhou', cityCode: 'CAN', country: 'China', region: 'China' },
+    { code: 'SZX', name: 'Shenzhen Bao\'an', city: 'Shenzhen', cityCode: 'SZX', country: 'China', region: 'China' },
+    { code: 'CTU', name: 'Chengdu Shuangliu', city: 'Chengdu', cityCode: 'CTU', country: 'China', region: 'China' },
+    { code: 'TFU', name: 'Chengdu Tianfu', city: 'Chengdu', cityCode: 'CTU', country: 'China', region: 'China' },
+    { code: 'CKG', name: 'Chongqing Jiangbei', city: 'Chongqing', cityCode: 'CKG', country: 'China', region: 'China' },
+    { code: 'XMN', name: 'Xiamen Gaoqi', city: 'Xiamen', cityCode: 'XMN', country: 'China', region: 'China' },
+    { code: 'XIY', name: 'Xi\'an Xianyang', city: 'Xi\'an', cityCode: 'XIY', country: 'China', region: 'China' },
+    { code: 'KMG', name: 'Kunming Changshui', city: 'Kunming', cityCode: 'KMG', country: 'China', region: 'China' },
+    { code: 'SYX', name: 'Sanya Phoenix', city: 'Sanya', cityCode: 'SYX', country: 'China', region: 'China' },
+    { code: 'FOC', name: 'Fuzhou Changle', city: 'Fuzhou', cityCode: 'FOC', country: 'China', region: 'China' },
+    { code: 'KWL', name: 'Guilin Liangjiang', city: 'Guilin', cityCode: 'KWL', country: 'China', region: 'China' },
+    { code: 'LJG', name: 'Lijiang Sanyi', city: 'Lijiang', cityCode: 'LJG', country: 'China', region: 'China' },
+    { code: 'HAK', name: 'Haikou Meilan', city: 'Haikou', cityCode: 'HAK', country: 'China', region: 'China' },
+    { code: 'URC', name: 'Urumqi Diwopu', city: 'Urumqi', cityCode: 'URC', country: 'China', region: 'China' },
+    { code: 'DLC', name: 'Dalian Zhoushuizi', city: 'Dalian', cityCode: 'DLC', country: 'China', region: 'China' },
+    { code: 'TNA', name: 'Jinan Yaoqiang', city: 'Jinan', cityCode: 'TNA', country: 'China', region: 'China' },
+    { code: 'CGO', name: 'Zhengzhou Xinzheng', city: 'Zhengzhou', cityCode: 'CGO', country: 'China', region: 'China' },
+    { code: 'NNG', name: 'Nanning Wuxu', city: 'Nanning', cityCode: 'NNG', country: 'China', region: 'China' },
+    { code: 'SJW', name: 'Shijiazhuang Zhengding', city: 'Shijiazhuang', cityCode: 'SJW', country: 'China', region: 'China' },
+    { code: 'LHW', name: 'Lanzhou Zhongchuan', city: 'Lanzhou', cityCode: 'LHW', country: 'China', region: 'China' },
+    { code: 'INC', name: 'Yinchuan Hedong', city: 'Yinchuan', cityCode: 'INC', country: 'China', region: 'China' },
 
-    // Japan (7)
-    { code: 'NRT', name: 'Tokyo Narita', region: 'Japan' },
-    { code: 'HND', name: 'Tokyo Haneda', region: 'Japan' },
-    { code: 'KIX', name: 'Osaka Kansai', region: 'Japan' },
-    { code: 'NGO', name: 'Nagoya', region: 'Japan' },
-    { code: 'FUK', name: 'Fukuoka', region: 'Japan' },
-    { code: 'CTS', name: 'Sapporo', region: 'Japan' },
-    { code: 'OKA', name: 'Okinawa', region: 'Japan' },
+    // --- JAPAN (Region = Country) ---
+    { code: 'NRT', name: 'Tokyo Narita', city: 'Tokyo', cityCode: 'TYO', country: 'Japan', region: 'Japan' },
+    { code: 'HND', name: 'Tokyo Haneda', city: 'Tokyo', cityCode: 'TYO', country: 'Japan', region: 'Japan' },
+    { code: 'KIX', name: 'Osaka Kansai', city: 'Osaka', cityCode: 'OSA', country: 'Japan', region: 'Japan' },
+    { code: 'NGO', name: 'Nagoya Chubu', city: 'Nagoya', cityCode: 'OSA', country: 'Japan', region: 'Japan' },
+    { code: 'FUK', name: 'Fukuoka', city: 'Fukuoka', cityCode: 'FUK', country: 'Japan', region: 'Japan' },
+    { code: 'CTS', name: 'Sapporo New Chitose', city: 'Sapporo', cityCode: 'SPK', country: 'Japan', region: 'Japan' },
+    { code: 'OKA', name: 'Okinawa Naha', city: 'Okinawa', cityCode: 'OKA', country: 'Japan', region: 'Japan' },
 
-    // South Korea (3)
-    { code: 'ICN', name: 'Seoul Incheon', region: 'South Korea' },
-    { code: 'PUS', name: 'Busan', region: 'South Korea' },
-    { code: 'CJU', name: 'Jeju', region: 'South Korea' },
+    // --- SOUTH KOREA (Region = Country) ---
+    { code: 'ICN', name: 'Seoul Incheon', city: 'Seoul', cityCode: 'SEL', country: 'South Korea', region: 'South Korea' },
+    { code: 'GMP', name: 'Seoul Gimpo', city: 'Seoul', cityCode: 'SEL', country: 'South Korea', region: 'South Korea' },
+    { code: 'PUS', name: 'Busan Gimhae', city: 'Busan', cityCode: 'PUS', country: 'South Korea', region: 'South Korea' },
+    { code: 'CJU', name: 'Jeju', city: 'Jeju', cityCode: 'CJU', country: 'South Korea', region: 'South Korea' },
 
-    // Southeast Asia (17)
-    { code: 'BKK', name: 'Bangkok Suvarnabhumi', region: 'Thailand' },
-    { code: 'DMK', name: 'Bangkok Don Mueang', region: 'Thailand' },
-    { code: 'HKT', name: 'Phuket', region: 'Thailand' },
-    { code: 'CNX', name: 'Chiang Mai', region: 'Thailand' },
-    { code: 'SGN', name: 'Ho Chi Minh City', region: 'Vietnam' },
-    { code: 'HAN', name: 'Hanoi', region: 'Vietnam' },
-    { code: 'DAD', name: 'Da Nang', region: 'Vietnam' },
-    { code: 'SIN', name: 'Singapore', region: 'Singapore' },
-    { code: 'KUL', name: 'Kuala Lumpur', region: 'Malaysia' },
-    { code: 'MNL', name: 'Manila', region: 'Philippines' },
-    { code: 'CEB', name: 'Cebu', region: 'Philippines' },
-    { code: 'PNH', name: 'Phnom Penh', region: 'Cambodia' },
-    { code: 'REP', name: 'Siem Reap', region: 'Cambodia' },
-    { code: 'CGK', name: 'Jakarta', region: 'Indonesia' },
-    { code: 'DPS', name: 'Bali', region: 'Indonesia' },
+    // --- SOUTHEAST ASIA (Region = Southeast Asia) ---
+    { code: 'BKK', name: 'Bangkok Suvarnabhumi', city: 'Bangkok', cityCode: 'BKK', country: 'Thailand', region: 'Southeast Asia' },
+    { code: 'DMK', name: 'Bangkok Don Mueang', city: 'Bangkok', cityCode: 'BKK', country: 'Thailand', region: 'Southeast Asia' },
+    { code: 'HKT', name: 'Phuket', city: 'Phuket', cityCode: 'HKT', country: 'Thailand', region: 'Southeast Asia' },
+    { code: 'CNX', name: 'Chiang Mai', city: 'Chiang Mai', cityCode: 'CNX', country: 'Thailand', region: 'Southeast Asia' },
+    { code: 'SGN', name: 'Ho Chi Minh City', city: 'Ho Chi Minh City', cityCode: 'SGN', country: 'Vietnam', region: 'Southeast Asia' },
+    { code: 'HAN', name: 'Hanoi', city: 'Hanoi', cityCode: 'HAN', country: 'Vietnam', region: 'Southeast Asia' },
+    { code: 'SIN', name: 'Singapore Changi', city: 'Singapore', cityCode: 'SIN', country: 'Singapore', region: 'Southeast Asia' },
+    { code: 'KUL', name: 'Kuala Lumpur', city: 'Kuala Lumpur', cityCode: 'KUL', country: 'Malaysia', region: 'Southeast Asia' },
+    { code: 'MNL', name: 'Manila Ninoy Aquino', city: 'Manila', cityCode: 'MNL', country: 'Philippines', region: 'Southeast Asia' },
+    { code: 'CGK', name: 'Jakarta Soekarno-Hatta', city: 'Jakarta', cityCode: 'JKT', country: 'Indonesia', region: 'Southeast Asia' },
+    { code: 'DPS', name: 'Bali Denpasar', city: 'Bali', cityCode: 'DPS', country: 'Indonesia', region: 'Southeast Asia' },
 
-    // Europe (12)
-    { code: 'LHR', name: 'London Heathrow', region: 'UK' },
-    { code: 'CDG', name: 'Paris Charles de Gaulle', region: 'France' },
-    { code: 'FRA', name: 'Frankfurt', region: 'Germany' },
-    { code: 'MUC', name: 'Munich', region: 'Germany' },
-    { code: 'FCO', name: 'Rome Fiumicino', region: 'Italy' },
-    { code: 'MXP', name: 'Milan Malpensa', region: 'Italy' },
-    { code: 'MAD', name: 'Madrid', region: 'Spain' },
-    { code: 'AMS', name: 'Amsterdam', region: 'Netherlands' },
-    { code: 'ZRH', name: 'Zurich', region: 'Switzerland' },
-    { code: 'BRU', name: 'Brussels', region: 'Belgium' },
-    { code: 'VIE', name: 'Vienna', region: 'Austria' },
+    // --- EUROPE (EXCL UK) (Region = Europe) ---
+    { code: 'CDG', name: 'Paris Charles de Gaulle', city: 'Paris', cityCode: 'PAR', country: 'France', region: 'Europe' },
+    { code: 'FRA', name: 'Frankfurt', city: 'Frankfurt', cityCode: 'FRA', country: 'Germany', region: 'Europe' },
+    { code: 'MUC', name: 'Munich', city: 'Munich', cityCode: 'MUC', country: 'Germany', region: 'Europe' },
+    { code: 'FCO', name: 'Rome Fiumicino', city: 'Rome', cityCode: 'ROM', country: 'Italy', region: 'Europe' },
+    { code: 'MXP', name: 'Milan Malpensa', city: 'Milan', cityCode: 'MIL', country: 'Italy', region: 'Europe' },
+    { code: 'MAD', name: 'Madrid Barajas', city: 'Madrid', cityCode: 'MAD', country: 'Spain', region: 'Europe' },
+    { code: 'BCN', name: 'Barcelona El Prat', city: 'Barcelona', cityCode: 'BCN', country: 'Spain', region: 'Europe' },
+    { code: 'AMS', name: 'Amsterdam Schiphol', city: 'Amsterdam', cityCode: 'AMS', country: 'Netherlands', region: 'Europe' },
+    { code: 'ZRH', name: 'Zurich', city: 'Zurich', cityCode: 'ZRH', country: 'Switzerland', region: 'Europe' },
+    { code: 'BRU', name: 'Brussels', city: 'Brussels', cityCode: 'BRU', country: 'Belgium', region: 'Europe' },
+    { code: 'VIE', name: 'Vienna', city: 'Vienna', cityCode: 'VIE', country: 'Austria', region: 'Europe' },
 
-    // Middle East (3)
-    { code: 'DXB', name: 'Dubai', region: 'UAE' },
-    { code: 'AUH', name: 'Abu Dhabi', region: 'UAE' },
-    { code: 'DOH', name: 'Doha', region: 'Qatar' },
+    // --- UNITED KINGDOM (Region = Country) ---
+    { code: 'LHR', name: 'London Heathrow', city: 'London', cityCode: 'LON', country: 'United Kingdom', region: 'United Kingdom' },
+    { code: 'LGW', name: 'London Gatwick', city: 'London', cityCode: 'LON', country: 'United Kingdom', region: 'United Kingdom' },
 
-    // Oceania (2)
-    { code: 'SYD', name: 'Sydney', region: 'Australia' },
-    { code: 'MEL', name: 'Melbourne', region: 'Australia' }
+    // --- AUSTRALIA (Region = Country) ---
+    { code: 'SYD', name: 'Sydney', city: 'Sydney', cityCode: 'SYD', country: 'Australia', region: 'Australia' },
+    { code: 'MEL', name: 'Melbourne', city: 'Melbourne', cityCode: 'MEL', country: 'Australia', region: 'Australia' },
+    { code: 'BNE', name: 'Brisbane', city: 'Brisbane', cityCode: 'BNE', country: 'Australia', region: 'Australia' },
+    { code: 'PER', name: 'Perth', city: 'Perth', cityCode: 'PER', country: 'Australia', region: 'Australia' }
 ];
 
 module.exports = airports;

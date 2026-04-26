@@ -11,7 +11,7 @@ const airports = require('../data/airports');
 const database = require('../db');
 const { USER_AGENT } = require('../utils/config');
 
-const { sendTopDealAlerts, sendAuthAlert, sendCaptchaAlert } = require('../alerts');
+const { sendTopDealAlerts, sendAuthAlert, sendCaptchaAlert, sendVerificationAlert } = require('../alerts');
 
 async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
     console.log(`[Orchestrator] Starting LITE scan (Stealth Mode). Origin: ${targetOrigin}`);
@@ -65,16 +65,46 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
             throw new Error('CAPTCHA_TRIGGERED');
         }
 
-        // 2. Phase 1: Calendar Scan
+        // 2. Phase 1: Calendar Scan (GROUPED BY CITY)
         const calendarScanner = new DirectCalendarScanner();
         
         if (targetDest) {
             const airport = airports.find(a => a.code === targetDest);
-            if (airport) await processAirportLite(calendarScanner, airport, targetOrigin);
+            if (airport) {
+                await processAirportLite(calendarScanner, airport, targetOrigin).catch(e => {
+                    if (e.message === 'ZERO_RESULTS') {
+                        console.log(`[Orchestrator] Verification Failed for ${airport.code}. Skipping.`);
+                    } else {
+                        throw e;
+                    }
+                });
+            }
         } else {
+            // Identify UNIQUE city codes to avoid redundant scanning
+            const uniqueCities = [];
+            const seenCityCodes = new Set();
+
             for (const airport of airports) {
                 if (airport.code === targetOrigin) continue;
-                await processAirportLite(calendarScanner, airport, targetOrigin);
+                if (!seenCityCodes.has(airport.cityCode)) {
+                    seenCityCodes.add(airport.cityCode);
+                    uniqueCities.push(airport);
+                }
+            }
+
+            console.log(`[Orchestrator] Starting scans for ${uniqueCities.length} unique cities (${airports.length} total airports)...`);
+
+            for (const cityInfo of uniqueCities) {
+                try {
+                    await processAirportLite(calendarScanner, cityInfo, targetOrigin);
+                } catch (e) {
+                    if (e.message === 'ZERO_RESULTS') {
+                        console.log(`[Orchestrator] Verification Failed for city: ${cityInfo.city}. Sending alert and continuing.`);
+                        await sendVerificationAlert(targetOrigin, cityInfo.code);
+                    } else {
+                        console.error(`[Orchestrator] Error processing ${cityInfo.city}: ${e.message}`);
+                    }
+                }
             }
         }
 
@@ -84,40 +114,55 @@ async function runFullScan(targetOrigin = 'PVG', targetDest = null) {
             await sendAuthAlert();
             return;
         }
-        console.error(`[Orchestrator] Error: ${err.message}`);
+        console.error(`[Orchestrator] Fatal Error: ${err.message}`);
     } finally {
         if (context) await context.close();
         if (browser) await browser.close();
     }
 }
 
-async function processAirportLite(scanner, airport, origin) {
+async function processAirportLite(scanner, cityInfo, origin) {
     const db = database.getDB();
+    const isDomestic = scanner.isDomesticRoute(origin, cityInfo.code);
     
+    // API CALLS:
+    // For domestic, use raw code (e.g. CAN). For intl, use city code (e.g. TYO).
+    const scanCode = isDomestic ? cityInfo.code : cityInfo.cityCode;
+    
+    // DB STORAGE:
+    // Origin is always SHA (City level). Dest is always cityInfo.cityCode.
+    const dbOrigin = 'SHA'; 
+    const dbDest = cityInfo.cityCode;
+
     // 1. Scan Outbound (Shanghai -> Destination)
-    const outItems = await scanner.findCheapDates(origin, airport.code);
+    console.log(`[Orchestrator] ${isDomestic ? 'Domestic' : 'City'} Scan: ${origin} -> ${cityInfo.city} (${scanCode})`);
+    const outItems = await scanner.findCheapDates(origin, scanCode);
+    
     for (const item of outItems) {
-        await saveFlightPlaceholder(db, origin, airport.code, item.date, item.price);
+        await saveFlightPlaceholder(db, dbOrigin, dbDest, item.date, item.price);
     }
     
     // 2. Scan Inbound (Destination -> Shanghai)
-    const inItems = await scanner.findCheapDates(airport.code, origin);
+    console.log(`[Orchestrator] ${isDomestic ? 'Domestic' : 'City'} Scan: ${cityInfo.city} (${scanCode}) -> ${origin}`);
+    const inItems = await scanner.findCheapDates(scanCode, origin);
+    
     for (const item of inItems) {
-        await saveFlightPlaceholder(db, airport.code, origin, item.date, item.price);
+        await saveFlightPlaceholder(db, dbDest, dbOrigin, item.date, item.price);
     }
 }
 
 async function saveFlightPlaceholder(db, origin, dest, date, price) {
+    if (!price || price <= 0) return; // Ignore invalid data
+
     return new Promise((resolve, reject) => {
-        const scrapeDate = new Date().toISOString();
         const sql = `
             INSERT INTO flights (origin, dest, date, price, updated_at, flight_no, airline)
-            VALUES (?, ?, ?, ?, ?, 'CAL', 'Ctrip Calendar')
+            VALUES (?, ?, ?, ?, datetime('now'), 'CAL', 'Ctrip Calendar')
             ON CONFLICT(origin, dest, date, flight_no) DO UPDATE SET
                 price = excluded.price,
                 updated_at = excluded.updated_at
         `;
-        db.run(sql, [origin, dest, date, price, scrapeDate], (err) => {
+        db.run(sql, [origin, dest, date, price], (err) => {
             if (err) reject(err);
             else resolve();
         });
